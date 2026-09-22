@@ -1,0 +1,118 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PostgresStockReconciliationService } from "../../src/stock-reconciliation.service.js";
+import { Pool } from "pg";
+import { StockReconciliationItem } from "../../src/types.js";
+
+describe("SPEC-STOCK-007: PostgresStockReconciliationService", () => {
+  let mockPool: Pool;
+  let service: PostgresStockReconciliationService;
+
+  beforeEach(() => {
+    mockPool = {
+      query: vi.fn()
+    } as unknown as Pool;
+
+    service = new PostgresStockReconciliationService(mockPool);
+  });
+
+  it("ejecuta la consulta determinista LEFT JOIN filtrando exclusivamente por CONFIRMED", async () => {
+    const mockStockItems: StockReconciliationItem[] = [
+      {
+        clientSku: "CLI-100",
+        clientProductName: "Tornillo Hex 1/2",
+        supplierSku: "SUP-100",
+        supplierStock: 45,
+        stockStatus: "DISPONIBLE"
+      },
+      {
+        clientSku: "CLI-200",
+        clientProductName: "Tuerca M10",
+        supplierSku: "SUP-200",
+        supplierStock: 0,
+        stockStatus: "AGOTADO"
+      },
+      {
+        clientSku: "CLI-300",
+        clientProductName: "Arandela 3/8",
+        supplierSku: null,
+        supplierStock: 0,
+        stockStatus: "NO_CATALOGADO"
+      }
+    ];
+
+    vi.mocked(mockPool.query).mockResolvedValueOnce({ rows: mockStockItems } as any);
+
+    const result = await service.getReconciledStock();
+
+    expect(result).toEqual(mockStockItems);
+    expect(mockPool.query).toHaveBeenCalledWith(
+      expect.stringContaining("m.status = 'CONFIRMED'")
+    );
+    expect(mockPool.query).toHaveBeenCalledWith(
+      expect.stringContaining("CASE")
+    );
+  });
+
+  describe("getPaginatedReconciliationReport", () => {
+    it("obtiene métricas consolidadas e items paginados con filtros por defecto", async () => {
+      const mockMetrics = {
+        totalProducts: 10,
+        availableCount: 5,
+        outOfStockCount: 2,
+        discontinuedCount: 1,
+        unmappedCount: 2
+      };
+
+      const mockItems = [
+        {
+          clientSku: "CLI-100",
+          clientProductName: "Tornillo Hex",
+          supplierSku: "SUP-100",
+          supplierStock: 10,
+          stockStatus: "DISPONIBLE"
+        }
+      ];
+
+      vi.mocked(mockPool.query)
+        .mockResolvedValueOnce({ rows: [mockMetrics] } as any) // Metrics
+        .mockResolvedValueOnce({ rows: [{ total: 10 }] } as any) // Count
+        .mockResolvedValueOnce({ rows: mockItems } as any); // Items
+
+      const result = await service.getPaginatedReconciliationReport({
+        status: "TODOS",
+        page: 1,
+        pageSize: 50
+      });
+
+      expect(result.metrics).toEqual(mockMetrics);
+      expect(result.pagination).toEqual({
+        currentPage: 1,
+        pageSize: 50,
+        totalItems: 10,
+        totalPages: 1
+      });
+      expect(result.items).toEqual(mockItems);
+    });
+
+    it("aplica filtros de estado y búsqueda textual con parámetros seguros", async () => {
+      vi.mocked(mockPool.query)
+        .mockResolvedValueOnce({ rows: [{ totalProducts: 1, availableCount: 0, outOfStockCount: 1, discontinuedCount: 0, unmappedCount: 0 }] } as any)
+        .mockResolvedValueOnce({ rows: [{ total: 1 }] } as any)
+        .mockResolvedValueOnce({ rows: [] } as any);
+
+      await service.getPaginatedReconciliationReport({
+        status: "AGOTADO",
+        search: "Tornillo",
+        page: 2,
+        pageSize: 10
+      });
+
+      // Count query should have status and search
+      expect(mockPool.query).toHaveBeenCalledWith(
+        expect.stringContaining('"stockStatus" = $1'),
+        expect.arrayContaining(["AGOTADO", "%Tornillo%"])
+      );
+    });
+  });
+});
+

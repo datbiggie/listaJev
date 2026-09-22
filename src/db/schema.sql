@@ -1,0 +1,59 @@
+-- Extensión para similitud de cadenas mediante trigramas
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- Enumerador de estados de resolución
+DO $$ BEGIN
+    CREATE TYPE mapping_status AS ENUM ('CONFIRMED', 'REQUIRES_REVIEW', 'REJECTED');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+-- Catálogo de productos cliente
+CREATE TABLE IF NOT EXISTS client_products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sku VARCHAR(100) NOT NULL UNIQUE,
+    normalized_sku VARCHAR(100) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_client_normalized_sku ON client_products(normalized_sku);
+CREATE INDEX IF NOT EXISTS idx_client_name_trgm ON client_products USING gin (name gin_trgm_ops);
+
+-- Catálogo de productos proveedor
+CREATE TABLE IF NOT EXISTS supplier_products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sku VARCHAR(100) NOT NULL UNIQUE,
+    normalized_sku VARCHAR(100) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    current_stock INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_supplier_normalized_sku ON supplier_products(normalized_sku);
+CREATE INDEX IF NOT EXISTS idx_supplier_name_trgm ON supplier_products USING gin (name gin_trgm_ops);
+
+-- Tabla de mapeos y resoluciones semánticas
+CREATE TABLE IF NOT EXISTS product_mappings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_sku VARCHAR(100) NOT NULL REFERENCES client_products(sku) ON DELETE CASCADE,
+    supplier_sku VARCHAR(100) REFERENCES supplier_products(sku) ON DELETE CASCADE,
+    confidence_score NUMERIC(3, 2) NOT NULL DEFAULT 0.00,
+    status mapping_status NOT NULL,
+    discrepancy_reason VARCHAR(255) NOT NULL,
+    reviewed_by VARCHAR(100),
+    reviewed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices únicos parciales (Garantía de idempotencia y prevención de loops)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_client_supplier_pair 
+    ON product_mappings(client_sku, supplier_sku) 
+    WHERE supplier_sku IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_client_rejected_orphan 
+    ON product_mappings(client_sku) 
+    WHERE supplier_sku IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_mapping_client_status ON product_mappings(client_sku, status);
