@@ -329,5 +329,5 @@ Estado actual de aseguramiento de calidad:
 └── tests/
     └── unit/                          # 11 suites de pruebas unitarias
 ```
-#   l i s t a J e v  
- 
+#   l i s t a J e v 
+ 
