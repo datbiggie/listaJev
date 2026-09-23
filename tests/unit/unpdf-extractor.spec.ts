@@ -160,4 +160,46 @@ describe("SPEC-INGEST-PDF-010: UnpdfExtractor", () => {
     expect(result.items[0]?.rawBrand).toBe("PORTER");
     expect(result.items[0]?.stock).toBe(36);
   });
+
+  it("extrae correctamente SKUs compuestos con espacio (ej. 25 MIN, 20 HEM, 30 MACHO)", async () => {
+    const mockPageText = `
+      LISTA DE PRECIOS
+      25 MIN FUSIBLE MODERNO MINI 25 AMP (100 PZAS) ENELBROCK 1183 Bs.3.368,84 $4.00
+      20 HEM FUSIBLE TIPO HEMBRA 20 AMP ENELBROCK 2020 Bs.387,42 $0.46
+      30 MACHO FUSIBLE TOYOTA MACHO 30 AMP NACIONAL 604 Bs.336,88 $0.40
+      001 BORNE DE PLOMO PARA AUTOMOVIL PEQUEÑO NACIONAL 3 Bs.1.541,24 $1.83
+    `;
+
+    vi.mocked(getDocumentProxy).mockResolvedValueOnce({} as any);
+    vi.mocked(extractText).mockResolvedValueOnce({
+      totalPages: 1,
+      text: [mockPageText]
+    });
+
+    const dummyBuffer = new Uint8Array([37, 80, 68, 70]).buffer;
+    const result = await extractor.extractItems(dummyBuffer);
+
+    expect(result.items).toHaveLength(4);
+
+    expect(result.items[0]?.rawSku).toBe("25 MIN");
+    expect(result.items[0]?.rawName).toBe("FUSIBLE MODERNO MINI 25 AMP (100 PZAS)");
+    expect(result.items[0]?.rawBrand).toBe("ENELBROCK");
+    expect(result.items[0]?.stock).toBe(1183);
+
+    expect(result.items[1]?.rawSku).toBe("20 HEM");
+    expect(result.items[1]?.rawName).toBe("FUSIBLE TIPO HEMBRA 20 AMP");
+    expect(result.items[1]?.rawBrand).toBe("ENELBROCK");
+    expect(result.items[1]?.stock).toBe(2020);
+
+    expect(result.items[2]?.rawSku).toBe("30 MACHO");
+    expect(result.items[2]?.rawName).toBe("FUSIBLE TOYOTA MACHO 30 AMP");
+    expect(result.items[2]?.rawBrand).toBe("NACIONAL");
+    expect(result.items[2]?.stock).toBe(604);
+
+    // Verifica que un SKU numérico simple como "001" no se fusione con la descripción
+    expect(result.items[3]?.rawSku).toBe("001");
+    expect(result.items[3]?.rawName).toBe("BORNE DE PLOMO PARA AUTOMOVIL PEQUEÑO");
+    expect(result.items[3]?.rawBrand).toBe("NACIONAL");
+    expect(result.items[3]?.stock).toBe(3);
+  });
 });

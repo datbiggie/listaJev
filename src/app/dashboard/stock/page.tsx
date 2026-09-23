@@ -1,7 +1,6 @@
 import { getStockReconciliationService } from "@/lib/service-container";
 import { StockReportFilterSchema } from "@/types";
 import { StockTableClient } from "./stock-table.client";
-import { PageHeader } from "@/components/ui/page-header";
 
 export const dynamic = "force-dynamic";
 

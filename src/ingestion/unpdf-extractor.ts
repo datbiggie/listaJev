@@ -128,9 +128,13 @@ export class UnpdfExtractor implements IPdfExtractor {
       /^\s*(?<sku>[A-Za-z0-9][A-Za-z0-9\-_./]{1,})\s+(?<nameAndBrand>.+?)\s+(?<stock>\d+)\s+(?:Bs\.?|USD|\$|EUR|€)\s*[\d.,]+(?:\s+(?:Bs\.?|USD|\$|EUR|€)\s*[\d.,]+)*\s*$/i;
     const priceWithStockMatch = priceWithStockPattern.exec(sanitizedLine);
     if (priceWithStockMatch?.groups?.["sku"] && priceWithStockMatch?.groups?.["nameAndBrand"]) {
-      const rawSku = priceWithStockMatch.groups["sku"].trim();
-      const nameAndBrand = priceWithStockMatch.groups["nameAndBrand"].trim();
+      let rawSku = priceWithStockMatch.groups["sku"].trim();
+      let nameAndBrand = priceWithStockMatch.groups["nameAndBrand"].trim();
       const stock = parseInt(priceWithStockMatch.groups["stock"] ?? "0", 10);
+
+      const adjusted = this.adjustSkuWithSpace(rawSku, nameAndBrand);
+      rawSku = adjusted.rawSku;
+      nameAndBrand = adjusted.nameAndBrand;
 
       const lastSpace = nameAndBrand.lastIndexOf(" ");
       let rawName = nameAndBrand;
@@ -159,9 +163,13 @@ export class UnpdfExtractor implements IPdfExtractor {
       const beforePrice = sanitizedLine.slice(0, trailingPriceMatch.index).trim();
       const firstSpace = beforePrice.indexOf(" ");
       if (firstSpace > 0) {
-        const rawSku = beforePrice.slice(0, firstSpace).trim();
-        const rest = beforePrice.slice(firstSpace).trim();
+        let rawSku = beforePrice.slice(0, firstSpace).trim();
+        let rest = beforePrice.slice(firstSpace).trim();
         if (rawSku.length >= 2 && rest.length >= 2) {
+          const adjusted = this.adjustSkuWithSpace(rawSku, rest);
+          rawSku = adjusted.rawSku;
+          rest = adjusted.nameAndBrand;
+
           const lastSpace = rest.lastIndexOf(" ");
           let rawName = rest;
           let rawBrand: string | undefined;
@@ -185,5 +193,43 @@ export class UnpdfExtractor implements IPdfExtractor {
     }
 
     return null;
+  }
+
+  /**
+   * Detecta y recompone SKUs compuestos por múltiples tokens con espacio (ej. "25 MIN", "20 HEM", "30 MACHO")
+   * cuando el código inicial es corto y va seguido de un modificador de tipo de repuesto o categoría.
+   */
+  private adjustSkuWithSpace(
+    rawSku: string,
+    nameAndBrand: string
+  ): { rawSku: string; nameAndBrand: string } {
+    const spaceIdx = nameAndBrand.indexOf(" ");
+    if (spaceIdx <= 0) {
+      return { rawSku, nameAndBrand };
+    }
+
+    const firstWord = nameAndBrand.slice(0, spaceIdx).trim().toUpperCase();
+    const restWords = nameAndBrand.slice(spaceIdx + 1).trim();
+    const nextWord = restWords.split(/\s+/)[0]?.toUpperCase() ?? "";
+
+    const isShortSku = rawSku.length <= 6 && /^[A-Z0-9.\-]+$/i.test(rawSku);
+    const isKnownModifier = /^(MIN|HEM|MACHO|ENCH|MAXI)$/i.test(firstWord);
+    const isCategoryNoun =
+      /^(FUSIBLE|FUSIBLERA|CRUCETA|ALTERNADOR|ARRANQUE|BOBINA|BOMBA|BOMBILLO|BORNE|BUJE|BUJIA|CABLE|CARBON|CARBONERA|CARBURADOR|CONECTOR|CORREA|CREMALLERA|DIODO|ELECTRO|EMPACADURA|ESTOPERA|FILTRO|FLASHER|GOMA|INDUCIDO|INYECTOR|MODULO|MOTOR|PASTILLA|PILA|PIÑON|POLEA|PORTA|REGULADOR|RELAY|RESISTENCIA|ROLINERA|ROTULA|SENSOR|SOCKET|SOCATE|SOLENOIDE|SWITCH|TAPA|TERMINAL|TERMOSTATO|TOMA|VALVULA)$/i.test(
+        nextWord
+      );
+
+    if (
+      isShortSku &&
+      (isKnownModifier ||
+        (firstWord.length <= 5 && isCategoryNoun && !isKnownModifier))
+    ) {
+      return {
+        rawSku: `${rawSku} ${nameAndBrand.slice(0, spaceIdx).trim()}`,
+        nameAndBrand: restWords
+      };
+    }
+
+    return { rawSku, nameAndBrand };
   }
 }
