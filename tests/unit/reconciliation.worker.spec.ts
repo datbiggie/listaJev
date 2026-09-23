@@ -161,6 +161,13 @@ describe("SPEC-WORKER-006: CatalogReconciliationWorker", () => {
   });
 
   it("tolera excepciones de inferencia en un candidato y prueba el siguiente candidato", async () => {
+    const candidateLowSim: SupplierCandidate = {
+      sku: "SUP-HEX-040",
+      normalizedSku: "SUPHEX040",
+      name: "Tornillo Algo Parecido",
+      similarityScore: 0.62 // menor a REVIEW_MATCH_THRESHOLD (0.70)
+    };
+
     const candidate2: SupplierCandidate = {
       sku: "SUP-HEX-099",
       normalizedSku: "SUPHEX099",
@@ -169,7 +176,7 @@ describe("SPEC-WORKER-006: CatalogReconciliationWorker", () => {
     };
 
     vi.mocked(mockRepo.getUnmappedClientProducts).mockResolvedValueOnce([mockProduct]);
-    vi.mocked(mockRepo.findSupplierCandidates).mockResolvedValueOnce([mockCandidate, candidate2]);
+    vi.mocked(mockRepo.findSupplierCandidates).mockResolvedValueOnce([candidateLowSim, candidate2]);
 
     vi.mocked(mockMatcher.evaluateMatch)
       .mockRejectedValueOnce(new Error("Timeout inesperado"))
@@ -190,6 +197,27 @@ describe("SPEC-WORKER-006: CatalogReconciliationWorker", () => {
       confidenceScore: 0.92,
       status: "CONFIRMED",
       discrepancyReason: "NONE"
+    });
+  });
+
+  it("aplica degradacion agraciada a REQUIRES_REVIEW si la IA falla pero el candidato tiene similitud >= 0.70", async () => {
+    vi.mocked(mockRepo.getUnmappedClientProducts).mockResolvedValueOnce([mockProduct]);
+    vi.mocked(mockRepo.findSupplierCandidates).mockResolvedValueOnce([mockCandidate]); // similarityScore = 0.78
+
+    vi.mocked(mockMatcher.evaluateMatch).mockRejectedValueOnce(
+      new Error("Fallo de autenticacion o saldo en AI Gateway (HTTP 403)")
+    );
+
+    const res = await worker.runBatch();
+
+    expect(res.processed).toBe(1);
+    expect(res.resolved).toBe(1);
+    expect(mockRepo.saveMapping).toHaveBeenCalledWith({
+      clientSku: "SKU-CLI-100",
+      supplierSku: "SUP-HEX-050",
+      confidenceScore: 0.78,
+      status: "REQUIRES_REVIEW",
+      discrepancyReason: "SPECIFICATION_MISMATCH"
     });
   });
 

@@ -88,7 +88,23 @@ export class CatalogReconciliationWorker {
             discrepancyReason: "NONE"
           };
         } else {
-          evaluation = await this.aiMatcher.evaluateMatch(product, candidate);
+          try {
+            evaluation = await this.aiMatcher.evaluateMatch(product, candidate);
+          } catch (aiError) {
+            // Fail-Safe / Degradacion Agraciada:
+            // Si la inferencia de IA no esta disponible, pero la similitud lexica del
+            // candidato alcanza el umbral de revision, se preserva para auditoria humana.
+            if (candidate.similarityScore >= this.config.REVIEW_MATCH_THRESHOLD) {
+              evaluation = {
+                isMatch: true,
+                confidenceScore: candidate.similarityScore,
+                matchType: "EQUIVALENT_VARIANT",
+                discrepancyReason: "SPECIFICATION_MISMATCH"
+              };
+            } else {
+              throw aiError;
+            }
+          }
         }
 
         if (!evaluation.isMatch) {

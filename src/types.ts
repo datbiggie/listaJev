@@ -269,7 +269,14 @@ export interface IProductRepository {
   ): Promise<SupplierCandidate[]>;
   saveMapping(record: MappingRecord): Promise<void>;
   getPendingReviews(limit: number): Promise<MappingRecord[]>;
-  getAuditItemsView(limit: number): Promise<AuditItemViewDTO[]>;
+  getAuditItemsView(limit: number, status?: MappingStatus): Promise<AuditItemViewDTO[]>;
+  resetRejectedMappings(): Promise<number>;
+  getMappingStatusCounts(): Promise<{
+    confirmed: number;
+    requiresReview: number;
+    rejected: number;
+    totalClient: number;
+  }>;
   resolveAuditReview(
     clientSku: string,
     statusOrSupplierSku: string | null | "CONFIRMED" | "REJECTED",

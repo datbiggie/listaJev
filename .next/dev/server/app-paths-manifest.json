@@ -1,5 +1,0 @@
-{
-  "/dashboard/audit/page": "app/dashboard/audit/page.js",
-  "/dashboard/ingest/page": "app/dashboard/ingest/page.js",
-  "/dashboard/stock/page": "app/dashboard/stock/page.js"
-}

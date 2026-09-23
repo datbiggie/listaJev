@@ -17,7 +17,12 @@ async function main(): Promise<void> {
   });
 
   const repository = new PostgresProductRepository(pool);
-  const aiMatcher = new JevSystemOneMatcher(config.JEV_MODEL_ID);
+  const aiMatcher = new JevSystemOneMatcher(
+    config.JEV_MODEL_ID,
+    3,
+    400,
+    config.AI_GATEWAY_API_KEY
+  );
   const worker = new CatalogReconciliationWorker(repository, aiMatcher, config);
   const stockService = new PostgresStockReconciliationService(pool);
 

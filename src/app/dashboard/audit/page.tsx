@@ -6,7 +6,11 @@ export const dynamic = "force-dynamic";
 
 export default async function AuditPage() {
   const repository = getProductRepository();
-  const pendingReviews = await repository.getAuditItemsView(100);
+  const [pendingReviews, rejectedItems, metrics] = await Promise.all([
+    repository.getAuditItemsView(100, "REQUIRES_REVIEW"),
+    repository.getAuditItemsView(100, "REJECTED"),
+    repository.getMappingStatusCounts()
+  ]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -16,26 +20,49 @@ export default async function AuditPage() {
             Bandeja de Auditoría de Equivalencias
           </h2>
           <p className="text-sm text-slate-600 mt-1">
-            Resolución manual de productos marcados con discrepancias semánticas (REQUIRES_REVIEW).
+            Resolución y supervisión manual de productos en revisión (REQUIRES_REVIEW) y huérfanos (REJECTED).
           </p>
         </div>
 
-        <form
-          action={async () => {
-            "use server";
-            await runReconciliationAction();
-          }}
-        >
-          <button
-            type="submit"
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+        <div className="flex flex-wrap items-center gap-2">
+          <form
+            action={async () => {
+              "use server";
+              await runReconciliationAction({ allBatches: true });
+            }}
           >
-            Ejecutar Ciclo de Conciliación
-          </button>
-        </form>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+            >
+              Conciliar Lotes Pendientes
+            </button>
+          </form>
+
+          <form
+            action={async () => {
+              "use server";
+              await runReconciliationAction({
+                reprocessRejected: true,
+                allBatches: true
+              });
+            }}
+          >
+            <button
+              type="submit"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+            >
+              Re-evaluar Huérfanos
+            </button>
+          </form>
+        </div>
       </div>
 
-      <AuditTableClient initialItems={pendingReviews} />
+      <AuditTableClient
+        initialItems={pendingReviews}
+        rejectedItems={rejectedItems}
+        metrics={metrics}
+      />
     </div>
   );
 }

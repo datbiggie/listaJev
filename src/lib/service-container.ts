@@ -33,7 +33,12 @@ export function getCatalogIngestionService(): CatalogIngestionService {
 export function getReconciliationWorker(): CatalogReconciliationWorker {
   const config = loadConfig();
   const repo = getProductRepository();
-  const matcher = new JevSystemOneMatcher(config.JEV_MODEL_ID);
+  const matcher = new JevSystemOneMatcher(
+    config.JEV_MODEL_ID,
+    3,
+    400,
+    config.AI_GATEWAY_API_KEY
+  );
   return new CatalogReconciliationWorker(repo, matcher, config);
 }
 

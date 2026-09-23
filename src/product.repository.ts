@@ -4,6 +4,7 @@ import {
   ClientProduct,
   IProductRepository,
   MappingRecord,
+  MappingStatus,
   SupplierCandidate
 } from "./types";
 
@@ -173,7 +174,33 @@ export class PostgresProductRepository implements IProductRepository {
     return result.rows;
   }
 
-  public async getAuditItemsView(limit: number): Promise<AuditItemViewDTO[]> {
+  public async getAuditItemsView(
+    limit: number,
+    status?: MappingStatus
+  ): Promise<AuditItemViewDTO[]> {
+    if (status && status !== "REQUIRES_REVIEW") {
+      const query = `
+        SELECT 
+          pm.id::text AS id,
+          pm.client_sku AS "clientSku",
+          cp.name AS "clientProductName",
+          pm.supplier_sku AS "supplierSku",
+          sp.name AS "supplierProductName",
+          CAST(pm.confidence_score AS FLOAT) AS "confidenceScore",
+          pm.status AS status,
+          pm.discrepancy_reason AS "discrepancyReason",
+          pm.created_at AS "createdAt"
+        FROM product_mappings pm
+        JOIN client_products cp ON cp.sku = pm.client_sku
+        LEFT JOIN supplier_products sp ON sp.sku = pm.supplier_sku
+        WHERE pm.status = $2
+        ORDER BY pm.created_at ASC
+        LIMIT $1;
+      `;
+      const result = await this.pool.query<AuditItemViewDTO>(query, [limit, status]);
+      return result.rows;
+    }
+
     const query = `
       SELECT 
         pm.id::text AS id,
@@ -194,6 +221,42 @@ export class PostgresProductRepository implements IProductRepository {
     `;
     const result = await this.pool.query<AuditItemViewDTO>(query, [limit]);
     return result.rows;
+  }
+
+  public async resetRejectedMappings(): Promise<number> {
+    const result = await this.pool.query(
+      "DELETE FROM product_mappings WHERE status = 'REJECTED';"
+    );
+    return result.rowCount ?? 0;
+  }
+
+  public async getMappingStatusCounts(): Promise<{
+    confirmed: number;
+    requiresReview: number;
+    rejected: number;
+    totalClient: number;
+  }> {
+    const statusResult = await this.pool.query<{ status: string; count: string }>(
+      "SELECT status, count(*)::text as count FROM product_mappings GROUP BY status"
+    );
+    const clientResult = await this.pool.query<{ count: string }>(
+      "SELECT count(*)::text as count FROM client_products"
+    );
+
+    const counts = {
+      confirmed: 0,
+      requiresReview: 0,
+      rejected: 0,
+      totalClient: parseInt(clientResult.rows[0]?.count ?? "0", 10)
+    };
+
+    for (const row of statusResult.rows) {
+      if (row.status === "CONFIRMED") counts.confirmed = parseInt(row.count, 10);
+      if (row.status === "REQUIRES_REVIEW") counts.requiresReview = parseInt(row.count, 10);
+      if (row.status === "REJECTED") counts.rejected = parseInt(row.count, 10);
+    }
+
+    return counts;
   }
 
   public async resolveAuditReview(
@@ -227,7 +290,7 @@ export class PostgresProductRepository implements IProductRepository {
           reviewed_by = $2,
           reviewed_at = CURRENT_TIMESTAMP,
           updated_at = CURRENT_TIMESTAMP
-        WHERE client_sku = $3 AND (supplier_sku = $4 OR supplier_sku IS NULL) AND status = 'REQUIRES_REVIEW';
+        WHERE client_sku = $3 AND (supplier_sku = $4 OR supplier_sku IS NULL);
       `;
       await this.pool.query(query, [status, reviewer.trim(), clientSku, supplierSku]);
     } else {
@@ -238,7 +301,7 @@ export class PostgresProductRepository implements IProductRepository {
           reviewed_by = $2,
           reviewed_at = CURRENT_TIMESTAMP,
           updated_at = CURRENT_TIMESTAMP
-        WHERE client_sku = $3 AND status = 'REQUIRES_REVIEW';
+        WHERE client_sku = $3;
       `;
       await this.pool.query(query, [status, reviewer.trim(), clientSku]);
     }

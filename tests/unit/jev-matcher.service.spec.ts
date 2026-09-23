@@ -1,11 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { JevSystemOneMatcher } from "../../src/jev-matcher.service.js";
-import { experimental_evaluate } from "ai";
 import { ClientProduct, SupplierCandidate } from "../../src/types.js";
-
-vi.mock("ai", () => ({
-  experimental_evaluate: vi.fn()
-}));
 
 describe("SPEC-AI-005: Servicio JevSystemOneMatcher", () => {
   const clientProduct: ClientProduct = {
@@ -22,8 +17,14 @@ describe("SPEC-AI-005: Servicio JevSystemOneMatcher", () => {
     similarityScore: 0.85
   };
 
+  const originalFetch = global.fetch;
+
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
   });
 
   it("TC-U-08: realiza inferencia exitosa y valida contra ProductMatchResultSchema", async () => {
@@ -34,13 +35,19 @@ describe("SPEC-AI-005: Servicio JevSystemOneMatcher", () => {
       discrepancyReason: "NONE"
     };
 
-    vi.mocked(experimental_evaluate).mockResolvedValueOnce(mockOutput);
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(mockOutput) } }]
+      })
+    });
 
-    const matcher = new JevSystemOneMatcher("typesafe-ai/jev", 3, 10);
+    const matcher = new JevSystemOneMatcher("typesafe-ai/jev", 3, 10, "test-api-key");
     const result = await matcher.evaluateMatch(clientProduct, candidate);
 
     expect(result).toEqual(mockOutput);
-    expect(experimental_evaluate).toHaveBeenCalledTimes(1);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("TC-U-09: intercepta respuestas del modelo que violan el contrato de esquema Zod", async () => {
@@ -51,9 +58,15 @@ describe("SPEC-AI-005: Servicio JevSystemOneMatcher", () => {
       discrepancyReason: "NONE"
     };
 
-    vi.mocked(experimental_evaluate).mockResolvedValue(invalidOutput);
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(invalidOutput) } }]
+      })
+    });
 
-    const matcher = new JevSystemOneMatcher("typesafe-ai/jev", 2, 5);
+    const matcher = new JevSystemOneMatcher("typesafe-ai/jev", 2, 5, "test-api-key");
 
     await expect(matcher.evaluateMatch(clientProduct, candidate)).rejects.toThrow(
       /Fallo de inferencia Jev tras 2 intentos/
@@ -68,34 +81,74 @@ describe("SPEC-AI-005: Servicio JevSystemOneMatcher", () => {
       discrepancyReason: "NONE"
     };
 
-    vi.mocked(experimental_evaluate)
-      .mockRejectedValueOnce(new Error("HTTP 429 Too Many Requests"))
-      .mockRejectedValueOnce(new Error("HTTP 503 Service Unavailable"))
-      .mockResolvedValueOnce(validOutput);
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        text: async () => "HTTP 429 Too Many Requests"
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        text: async () => "HTTP 503 Service Unavailable"
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: JSON.stringify(validOutput) } }]
+        })
+      });
 
-    const matcher = new JevSystemOneMatcher("typesafe-ai/jev", 3, 5);
+    const matcher = new JevSystemOneMatcher("typesafe-ai/jev", 3, 5, "test-api-key");
     const result = await matcher.evaluateMatch(clientProduct, candidate);
 
     expect(result).toEqual(validOutput);
-    expect(experimental_evaluate).toHaveBeenCalledTimes(3);
+    expect(global.fetch).toHaveBeenCalledTimes(3);
   });
 
   it("TC-U-11: agota reintentos y lanza excepción descriptiva", async () => {
-    vi.mocked(experimental_evaluate).mockRejectedValue(
-      new Error("HTTP 500 Internal Gateway Error")
-    );
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => "HTTP 500 Internal Gateway Error"
+    });
 
-    const matcher = new JevSystemOneMatcher("typesafe-ai/jev", 3, 5);
+    const matcher = new JevSystemOneMatcher("typesafe-ai/jev", 3, 5, "test-api-key");
 
     await expect(matcher.evaluateMatch(clientProduct, candidate)).rejects.toThrow(
-      "Fallo de inferencia Jev tras 3 intentos: HTTP 500 Internal Gateway Error"
+      /Fallo de inferencia Jev tras 3 intentos/
     );
-    expect(experimental_evaluate).toHaveBeenCalledTimes(3);
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("TC-U-12: falla inmediatamente sin reintentos ante error de autorización o saldo 403", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => "customer_verification_required"
+    });
+
+    const matcher = new JevSystemOneMatcher("typesafe-ai/jev", 3, 5, "test-api-key");
+
+    await expect(matcher.evaluateMatch(clientProduct, candidate)).rejects.toThrow(
+      /Fallo de autenticacion o saldo en AI Gateway \(HTTP 403\)/
+    );
+    // Debe haber fallado en el intento 1 sin reintentar
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("lanza error si modelId está vacío", () => {
     expect(() => new JevSystemOneMatcher("")).toThrow(
       "modelId es obligatorio para inicializar JevSystemOneMatcher"
+    );
+  });
+
+  it("lanza error si apiKey no está configurada", async () => {
+    const matcher = new JevSystemOneMatcher("typesafe-ai/jev", 3, 5, "");
+    await expect(matcher.evaluateMatch(clientProduct, candidate)).rejects.toThrow(
+      "Clave de API no configurada para el servicio de inferencia"
     );
   });
 });
