@@ -409,5 +409,71 @@ describe("SPEC-WORKER-006: CatalogReconciliationWorker", () => {
       discrepancyReason: "NONE"
     });
   });
+
+  it("rechaza asociar FP-50100-KIT con FP-50100 por discrepancia de variante (kit vs bomba)", async () => {
+    const clientKit: ClientProduct = {
+      id: "prod-kit",
+      sku: "FP-50100-KIT",
+      normalizedSku: "FP50100KIT",
+      name: "KIT REPARACION BOMBA GASOLINA TOYOTA 4 RUNNER 03-09",
+      brand: "PORTER"
+    };
+
+    const supplierPumpCandidate: SupplierCandidate = {
+      sku: "FP-50100",
+      normalizedSku: "FP50100",
+      name: "BOMBA GASOLINA PILA TOYOTA 4RUNNER 03-09",
+      brand: "PORTER",
+      similarityScore: 0.95
+    };
+
+    vi.mocked(mockRepo.getUnmappedClientProducts).mockResolvedValueOnce([clientKit]);
+    vi.mocked(mockRepo.findSupplierCandidates).mockResolvedValueOnce([supplierPumpCandidate]);
+
+    const res = await worker.runBatch();
+
+    expect(res.processed).toBe(1);
+    expect(res.resolved).toBe(0);
+    expect(mockRepo.saveMapping).toHaveBeenCalledWith({
+      clientSku: "FP-50100-KIT",
+      supplierSku: null,
+      confidenceScore: 0,
+      status: "REJECTED",
+      discrepancyReason: "NO_CANDIDATES_FOUND"
+    });
+  });
+
+  it("confirma correctamente el producto base exacto FP-50100 con FP-50100", async () => {
+    const clientPump: ClientProduct = {
+      id: "prod-pump",
+      sku: "FP-50100",
+      normalizedSku: "FP50100",
+      name: "BOMBA GASOLINA TOYOTA 4RUNNER 03-09 HONDA ACCORD",
+      brand: "PORTER"
+    };
+
+    const supplierPump: SupplierCandidate = {
+      sku: "FP-50100",
+      normalizedSku: "FP50100",
+      name: "BOMBA GASOLINA PILA TOYOTA 4RUNNER 03-09",
+      brand: "PORTER",
+      similarityScore: 1.0
+    };
+
+    vi.mocked(mockRepo.getUnmappedClientProducts).mockResolvedValueOnce([clientPump]);
+    vi.mocked(mockRepo.findSupplierCandidates).mockResolvedValueOnce([supplierPump]);
+
+    const res = await worker.runBatch();
+
+    expect(res.processed).toBe(1);
+    expect(res.resolved).toBe(1);
+    expect(mockRepo.saveMapping).toHaveBeenCalledWith({
+      clientSku: "FP-50100",
+      supplierSku: "FP-50100",
+      confidenceScore: 1.0,
+      status: "CONFIRMED",
+      discrepancyReason: "NONE"
+    });
+  });
 });
 

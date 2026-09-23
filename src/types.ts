@@ -110,6 +110,7 @@ export interface StockReconciliationItem {
   clientProductName: string;
   clientBrand?: string | null;
   supplierSku: string | null;
+  supplierProductName?: string | null;
   supplierBrand?: string | null;
   supplierStock: number;
   stockStatus: StockStatus;
@@ -289,6 +290,7 @@ export interface StockReportPaginatedResult {
     clientProductName: string;
     clientBrand?: string | null;
     supplierSku: string | null;
+    supplierProductName?: string | null;
     supplierBrand?: string | null;
     supplierStock: number;
     stockStatus: StockStatus;
@@ -367,4 +369,7 @@ export interface IStockReconciliationService {
   getPaginatedReconciliationReport(
     filters: StockReportFilterInput
   ): Promise<StockReportPaginatedResult>;
+  getExportStockItems(
+    filters: Omit<StockReportFilterInput, "page" | "pageSize">
+  ): Promise<StockReconciliationItem[]>;
 }

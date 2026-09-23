@@ -20,6 +20,7 @@ export class PostgresStockReconciliationService implements IStockReconciliationS
         c.name AS "clientProductName",
         c.brand AS "clientBrand",
         s.sku AS "supplierSku",
+        s.name AS "supplierProductName",
         s.brand AS "supplierBrand",
         COALESCE(s.current_stock, 0) AS "supplierStock",
         CASE 
@@ -52,6 +53,7 @@ export class PostgresStockReconciliationService implements IStockReconciliationS
           c.name AS "clientProductName",
           c.brand AS "clientBrand",
           s.sku AS "supplierSku",
+          s.name AS "supplierProductName",
           s.brand AS "supplierBrand",
           COALESCE(s.current_stock, 0)::int AS "supplierStock",
           CASE 
@@ -144,6 +146,7 @@ export class PostgresStockReconciliationService implements IStockReconciliationS
       clientProductName: string;
       clientBrand?: string | null;
       supplierSku: string | null;
+      supplierProductName?: string | null;
       supplierBrand?: string | null;
       supplierStock: number;
       stockStatus: StockStatus;
@@ -155,6 +158,7 @@ export class PostgresStockReconciliationService implements IStockReconciliationS
           "clientProductName",
           "clientBrand",
           "supplierSku",
+          "supplierProductName",
           "supplierBrand",
           "supplierStock",
           "stockStatus"
@@ -182,5 +186,87 @@ export class PostgresStockReconciliationService implements IStockReconciliationS
         unmappedCount: Number(metricsRow.unmappedCount)
       }
     };
+  }
+
+  public async getExportStockItems(
+    filters: Omit<StockReportFilterInput, "page" | "pageSize">
+  ): Promise<StockReconciliationItem[]> {
+    const baseCte = `
+      WITH base_stock AS (
+        SELECT 
+          c.sku AS "clientSku",
+          c.name AS "clientProductName",
+          c.brand AS "clientBrand",
+          s.sku AS "supplierSku",
+          s.name AS "supplierProductName",
+          s.brand AS "supplierBrand",
+          COALESCE(s.current_stock, 0)::int AS "supplierStock",
+          CASE 
+            WHEN m.supplier_sku IS NULL THEN 'NO_CATALOGADO'
+            WHEN s.sku IS NULL THEN 'DESCATALOGADO_PROVEEDOR'
+            WHEN s.current_stock = 0 THEN 'AGOTADO'
+            ELSE 'DISPONIBLE'
+          END AS "stockStatus"
+        FROM client_products c
+        LEFT JOIN product_mappings m 
+          ON m.client_sku = c.sku AND m.status = 'CONFIRMED'
+        LEFT JOIN supplier_products s 
+          ON s.sku = m.supplier_sku
+      )
+    `;
+
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+    let paramIndex = 1;
+
+    if (filters.status && filters.status !== "TODOS") {
+      conditions.push(`"stockStatus" = $${paramIndex++}`);
+      values.push(filters.status);
+    }
+
+    if (filters.search && filters.search.trim().length > 0) {
+      conditions.push(
+        `("clientSku" ILIKE $${paramIndex} OR "clientProductName" ILIKE $${paramIndex} OR "clientBrand" ILIKE $${paramIndex} OR "supplierBrand" ILIKE $${paramIndex})`
+      );
+      values.push(`%${filters.search.trim()}%`);
+      paramIndex++;
+    }
+
+    if (filters.minStock !== undefined && !isNaN(filters.minStock)) {
+      conditions.push(`"supplierStock" >= $${paramIndex++}`);
+      values.push(filters.minStock);
+    }
+
+    if (filters.maxStock !== undefined && !isNaN(filters.maxStock)) {
+      conditions.push(`"supplierStock" <= $${paramIndex++}`);
+      values.push(filters.maxStock);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const sortColumn = filters.sortBy === "sku" ? '"clientSku"' : '"supplierStock"';
+    const sortDirection = filters.sortOrder === "desc" ? "DESC" : "ASC";
+    const secondarySort = filters.sortBy === "sku" ? '"supplierStock" ASC' : '"clientSku" ASC';
+
+    const result = await this.pool.query<StockReconciliationItem>(
+      `
+        ${baseCte}
+        SELECT 
+          "clientSku",
+          "clientProductName",
+          "clientBrand",
+          "supplierSku",
+          "supplierProductName",
+          "supplierBrand",
+          "supplierStock",
+          "stockStatus"
+        FROM base_stock
+        ${whereClause}
+        ORDER BY ${sortColumn} ${sortDirection}, ${secondarySort};
+      `,
+      values
+    );
+
+    return result.rows;
   }
 }

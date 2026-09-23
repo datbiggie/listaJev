@@ -204,5 +204,43 @@ describe("SPEC-STOCK-007: PostgresStockReconciliationService", () => {
       );
     });
   });
+
+  describe("getExportStockItems", () => {
+    it("obtiene la totalidad de registros que coinciden con los filtros sin paginación", async () => {
+      const mockExportItems = [
+        {
+          clientSku: "CLI-1",
+          clientProductName: "Prod 1",
+          clientBrand: "BRAND-A",
+          supplierSku: "SUP-1",
+          supplierProductName: "Prod 1 Supplier",
+          supplierBrand: "BRAND-A",
+          supplierStock: 15,
+          stockStatus: "DISPONIBLE" as const
+        }
+      ];
+
+      vi.mocked(mockPool.query).mockResolvedValueOnce({ rows: mockExportItems } as any);
+
+      const items = await service.getExportStockItems({
+        status: "DISPONIBLE",
+        search: "Prod",
+        minStock: 5,
+        maxStock: 50,
+        sortBy: "stock",
+        sortOrder: "asc"
+      });
+
+      expect(items).toEqual(mockExportItems);
+      expect(mockPool.query).toHaveBeenCalledWith(
+        expect.stringContaining('"supplierProductName"'),
+        expect.arrayContaining(["DISPONIBLE", "%Prod%", 5, 50])
+      );
+      // No debe contener LIMIT ni OFFSET para exportación completa
+      expect(mockPool.query).not.toHaveBeenCalledWith(
+        expect.stringContaining("LIMIT")
+      );
+    });
+  });
 });
 

@@ -82,7 +82,7 @@ export class PostgresProductRepository implements IProductRepository {
           s.brand,
           CASE 
             WHEN $3::text IS NOT NULL AND s.normalized_sku = $3 THEN 1.0
-            WHEN $5::text IS NOT NULL AND (s.normalized_sku = $5 OR (length($5) >= 3 AND (s.normalized_sku LIKE $5 || '%' OR $3 LIKE s.normalized_sku || '%'))) THEN 0.95
+            WHEN $5::text IS NOT NULL AND (s.normalized_sku = $5 OR (length($5) >= 3 AND s.normalized_sku LIKE $5 || '%')) THEN 0.95
             ELSE similarity(s.name, $1)
           END AS "similarityScore"
         FROM supplier_products s
@@ -91,7 +91,7 @@ export class PostgresProductRepository implements IProductRepository {
             ($3::text IS NOT NULL AND s.normalized_sku = $3)
             OR ($5::text IS NOT NULL AND (
               s.normalized_sku = $5 
-              OR (length($5) >= 3 AND (s.normalized_sku LIKE $5 || '%' OR ($3::text IS NOT NULL AND $3 LIKE s.normalized_sku || '%')))
+              OR (length($5) >= 3 AND s.normalized_sku LIKE $5 || '%')
             ))
             OR s.name % $1
           )
@@ -111,7 +111,7 @@ export class PostgresProductRepository implements IProductRepository {
           END DESC,
           ($3::text IS NOT NULL AND s.normalized_sku = $3) DESC,
           ($5::text IS NOT NULL AND s.normalized_sku = $5) DESC,
-          ($5::text IS NOT NULL AND length($5) >= 3 AND (s.normalized_sku LIKE $5 || '%' OR ($3::text IS NOT NULL AND $3 LIKE s.normalized_sku || '%'))) DESC,
+          ($5::text IS NOT NULL AND length($5) >= 3 AND s.normalized_sku LIKE $5 || '%') DESC,
           "similarityScore" DESC
         LIMIT $2;
       `;

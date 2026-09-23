@@ -8,6 +8,7 @@ import { ingestCatalogAction } from "../../src/actions/ingest-catalog.action.js"
 import { runReconciliationAction } from "../../src/actions/run-reconciliation.action.js";
 import { resolveReviewAction } from "../../src/actions/resolve-review.action.js";
 import { getStockReportAction } from "../../src/actions/get-stock-report.action.js";
+import { exportStockCsvAction } from "../../src/actions/export-stock-csv.action.js";
 import * as serviceContainer from "../../src/lib/service-container.js";
 import { revalidatePath } from "next/cache";
 
@@ -431,6 +432,106 @@ describe("SPEC-WEB-NEXT-011: Server Actions", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe("Conexión perdida");
+    });
+  });
+
+  describe("exportStockCsvAction", () => {
+    it("genera archivo CSV formateado con BOM UTF-8 y columnas descriptivas", async () => {
+      const mockItems = [
+        {
+          clientSku: "FP-50100",
+          clientProductName: "BOMBA GASOLINA TOYOTA",
+          clientBrand: "PORTER",
+          supplierSku: "FP-50100",
+          supplierProductName: "BOMBA GASOLINA PILA 4RUNNER",
+          supplierBrand: "PORTER",
+          supplierStock: 1,
+          stockStatus: "DISPONIBLE" as const
+        },
+        {
+          clientSku: "FP-50100-KIT",
+          clientProductName: 'KIT REPARACION 33" ACCEL',
+          clientBrand: "PORTER",
+          supplierSku: null,
+          supplierProductName: null,
+          supplierBrand: null,
+          supplierStock: 0,
+          stockStatus: "NO_CATALOGADO" as const
+        }
+      ];
+
+      const mockStockService = {
+        getExportStockItems: vi.fn().mockResolvedValue(mockItems)
+      };
+      vi.mocked(serviceContainer.getStockReconciliationService).mockReturnValue(
+        mockStockService as any
+      );
+
+      const result = await exportStockCsvAction({
+        status: "DISPONIBLE",
+        page: 1,
+        pageSize: 50
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success && result.data) {
+        expect(result.data.totalItems).toBe(2);
+        // Debe iniciar con el BOM UTF-8
+        expect(result.data.csvContent.startsWith("\uFEFF")).toBe(true);
+        // Cabeceras esperadas
+        expect(result.data.csvContent).toContain("SKU Cliente");
+        expect(result.data.csvContent).toContain("Producto Proveedor");
+        expect(result.data.csvContent).toContain("Estado Mapeo");
+        // Valores formateados
+        expect(result.data.csvContent).toContain('"Disponible"');
+        expect(result.data.csvContent).toContain('"Conciliado"');
+        expect(result.data.csvContent).toContain('"Sin Equivalente"');
+        // Escapado de comillas dobles
+        expect(result.data.csvContent).toContain('33"" ACCEL');
+        expect(result.data.filename).toMatch(/^reporte_stock_disponible_\d{4}-\d{2}-\d{2}_\d{4}\.csv$/);
+      }
+    });
+
+    it("exporta la totalidad del catálogo cuando scope es ALL", async () => {
+      const mockStockService = {
+        getExportStockItems: vi.fn().mockResolvedValue([])
+      };
+      vi.mocked(serviceContainer.getStockReconciliationService).mockReturnValue(
+        mockStockService as any
+      );
+
+      const result = await exportStockCsvAction(
+        {
+          status: "AGOTADO",
+          page: 2,
+          pageSize: 20
+        },
+        "ALL"
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockStockService.getExportStockItems).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "TODOS",
+          search: undefined,
+          minStock: undefined,
+          maxStock: undefined
+        })
+      );
+      if (result.success && result.data) {
+        expect(result.data.filename).toContain("catalogo_completo");
+      }
+    });
+
+    it("valida filtros inválidos rechazando la ejecución", async () => {
+      const result = await exportStockCsvAction({
+        status: "ESTADO_INVALIDO" as any,
+        page: -1 as any,
+        pageSize: 50
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Parámetros de filtrado no válidos para la exportación.");
     });
   });
 });

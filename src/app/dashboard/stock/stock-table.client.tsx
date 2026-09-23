@@ -13,6 +13,7 @@ import {
   BoxesIcon,
   XIcon
 } from "@/components/icons";
+import { exportStockCsvAction, type ExportScope } from "@/actions/export-stock-csv.action";
 
 interface StockTableClientProps {
   report: StockReportPaginatedResult;
@@ -44,6 +45,8 @@ export function StockTableClient({
   const [maxStockInput, setMaxStockInput] = useState<string>(
     currentMaxStock !== undefined ? String(currentMaxStock) : ""
   );
+  const [isExporting, setIsExporting] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const sortBy = currentSortBy;
   const sortOrder = currentSortOrder;
@@ -136,43 +139,99 @@ export function StockTableClient({
     updateFilters({ page: newPage });
   };
 
-  const exportToCsv = () => {
-    const headers = [
-      "SKU Cliente",
-      "Producto Cliente",
-      "Marca Cliente",
-      "SKU Proveedor",
-      "Marca Proveedor",
-      "Stock Proveedor",
-      "Estado Inventario"
-    ];
-
-    const escapeCsvField = (value: string | number | null | undefined): string => {
-      if (value === null || value === undefined) return '""';
-      const str = String(value).replace(/"/g, '""');
-      return `"${str}"`;
-    };
-
-    const rows = report.items.map((item) => [
-      escapeCsvField(item.clientSku),
-      escapeCsvField(item.clientProductName),
-      escapeCsvField(item.clientBrand ?? "N/A"),
-      escapeCsvField(item.supplierSku ?? "N/A"),
-      escapeCsvField(item.supplierBrand ?? "N/A"),
-      escapeCsvField(item.supplierStock),
-      escapeCsvField(item.stockStatus)
-    ]);
-
-    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+  const downloadCsvBlob = (csvContent: string, filename: string) => {
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", `reporte_existencias_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute("download", filename);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const handleExport = async (scope: ExportScope | "PAGE") => {
+    setShowExportMenu(false);
+
+    if (scope === "PAGE") {
+      const headers = [
+        "SKU Cliente",
+        "Producto Cliente",
+        "Marca Cliente",
+        "Estado Inventario",
+        "Stock Disponible",
+        "SKU Proveedor",
+        "Producto Proveedor",
+        "Marca Proveedor",
+        "Estado Mapeo"
+      ];
+
+      const escapeField = (value: string | number | null | undefined): string => {
+        if (value === null || value === undefined) return '""';
+        const str = String(value).trim().replace(/\r?\n/g, " ").replace(/"/g, '""');
+        return `"${str}"`;
+      };
+
+      const formatStatus = (status: string): string => {
+        switch (status) {
+          case "DISPONIBLE":
+            return "Disponible";
+          case "AGOTADO":
+            return "Agotado (0 unidades)";
+          case "DESCATALOGADO_PROVEEDOR":
+            return "Descatalogado en Proveedor";
+          case "NO_CATALOGADO":
+            return "No Catalogado (Sin Proveedor)";
+          default:
+            return status;
+        }
+      };
+
+      const rows = report.items.map((item) => [
+        escapeField(item.clientSku),
+        escapeField(item.clientProductName),
+        escapeField(item.clientBrand || "N/A"),
+        escapeField(formatStatus(item.stockStatus)),
+        escapeField(item.supplierStock),
+        escapeField(item.supplierSku || "N/A"),
+        escapeField(item.supplierProductName || "N/A"),
+        escapeField(item.supplierBrand || "N/A"),
+        escapeField(item.supplierSku ? "Conciliado" : "Sin Equivalente")
+      ]);
+
+      const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+      const datePart = new Date().toISOString().slice(0, 10);
+      downloadCsvBlob(csvContent, `reporte_stock_pagina_${report.pagination.currentPage}_${datePart}.csv`);
+      return;
+    }
+
+    try {
+      setIsExporting(true);
+      const res = await exportStockCsvAction(
+        {
+          status: (currentStatus as any) || "TODOS",
+          search: currentSearch || undefined,
+          minStock: currentMinStock,
+          maxStock: currentMaxStock,
+          sortBy: currentSortBy,
+          sortOrder: currentSortOrder,
+          page: 1,
+          pageSize: 50
+        },
+        scope
+      );
+
+      if (res.success && res.data) {
+        downloadCsvBlob(res.data.csvContent, res.data.filename);
+      } else {
+        alert(res.error || "Ocurrió un error al generar la exportación CSV.");
+      }
+    } catch {
+      alert("Error de conexión al generar el archivo CSV.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -331,14 +390,109 @@ export function StockTableClient({
               />
             </form>
 
-            <button
-              type="button"
-              onClick={exportToCsv}
-              className="h-9 inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-700 hover:bg-zinc-50 shadow-2xs whitespace-nowrap transition"
-            >
-              <DownloadIcon className="size-3.5 text-zinc-500" />
-              <span>Exportar CSV</span>
-            </button>
+            {/* Botón de Exportación CSV con Opciones */}
+            <div className="relative inline-flex items-center">
+              <button
+                type="button"
+                onClick={() => handleExport("FILTERED")}
+                disabled={isExporting}
+                className="h-9 inline-flex items-center gap-2 rounded-l-lg border border-r-0 border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 shadow-2xs whitespace-nowrap transition disabled:opacity-60 disabled:cursor-not-allowed"
+                title={`Exportar ${report.pagination.totalItems.toLocaleString()} resultados filtrados a CSV`}
+              >
+                {isExporting ? (
+                  <svg className="size-3.5 animate-spin text-zinc-500" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                ) : (
+                  <DownloadIcon className="size-3.5 text-zinc-500" />
+                )}
+                <span>{isExporting ? "Exportando..." : "Exportar CSV"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                disabled={isExporting}
+                className="h-9 inline-flex items-center justify-center rounded-r-lg border border-zinc-300 bg-white px-2 text-zinc-600 hover:bg-zinc-50 shadow-2xs transition disabled:opacity-60"
+                title="Opciones avanzadas de exportación"
+              >
+                <svg className="size-3 text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m19 9-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* Menú desplegable de opciones de exportación */}
+              {showExportMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowExportMenu(false)}
+                  />
+                  <div className="absolute right-0 top-10 z-50 w-72 rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl">
+                    <div className="px-3 py-2 border-b border-zinc-100">
+                      <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+                        Opciones de Exportación
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleExport("FILTERED")}
+                      className="w-full text-left rounded-lg p-2.5 hover:bg-zinc-50 transition group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-zinc-900 group-hover:text-emerald-700">
+                          Resultados filtrados
+                        </span>
+                        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-bold text-zinc-600">
+                          {report.pagination.totalItems.toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-500 mt-0.5">
+                        Exporta todos los registros según los filtros y búsqueda activos.
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleExport("ALL")}
+                      className="w-full text-left rounded-lg p-2.5 hover:bg-zinc-50 transition group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-zinc-900 group-hover:text-emerald-700">
+                          Catálogo completo
+                        </span>
+                        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-bold text-zinc-600">
+                          {report.metrics.totalProducts.toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-500 mt-0.5">
+                        Exporta la totalidad de productos del cliente sin filtros.
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleExport("PAGE")}
+                      className="w-full text-left rounded-lg p-2.5 hover:bg-zinc-50 transition group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-zinc-900 group-hover:text-emerald-700">
+                          Página actual
+                        </span>
+                        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-bold text-zinc-600">
+                          {report.items.length}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-500 mt-0.5">
+                        Exporta únicamente las filas visibles en la tabla ({report.items.length} ítems).
+                      </p>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </Card>

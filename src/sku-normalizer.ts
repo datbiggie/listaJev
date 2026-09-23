@@ -235,3 +235,93 @@ export function brandsAreCompatible(
 
   return false;
 }
+
+/**
+ * Modificadores de especificación y variante de un producto.
+ */
+export interface ProductModifiers {
+  isKit: boolean;
+  isFloat: boolean;
+  isCap: boolean;
+  voltage: string | null;
+}
+
+/**
+ * Extrae modificadores semánticos que identifican variantes críticas a partir del SKU y nombre.
+ *
+ * @param sku - Código SKU del producto.
+ * @param name - Nombre o descripción opcional del producto.
+ * @returns Estructura con los flags y valores de modificadores detectados.
+ */
+export function extractProductModifiers(
+  sku: string,
+  name?: string | null
+): ProductModifiers {
+  const text = `${sku} ${name || ""}`.toUpperCase();
+
+  const isKit =
+    /\b(KIT|JUEGO|SET|REPARACION|REP)\b/.test(text) ||
+    sku.toUpperCase().includes("-KIT") ||
+    sku.toUpperCase().endsWith("KIT");
+
+  const isFloat =
+    /\b(FLOAT|FLOTADOR|FLOA|FLOT)\b/.test(text) ||
+    sku.toUpperCase().includes("FLOAT") ||
+    sku.toUpperCase().includes("-FLO");
+
+  const isCap =
+    /\b(CAP|TAPA)\b/.test(text) ||
+    sku.toUpperCase().includes("-CAP") ||
+    sku.toUpperCase().endsWith("CAP");
+
+  const voltageMatch = text.match(/\b(12V|24V|6V|48V)\b/);
+  const voltage = voltageMatch ? voltageMatch[1]! : null;
+
+  return { isKit, isFloat, isCap, voltage };
+}
+
+/**
+ * Determina si dos productos presentan una discrepancia irreconciliable de variante
+ * (ej. kit vs bomba individual, flotador vs módulo, tapa vs bomba, voltajes incompatibles).
+ *
+ * @param clientSku - SKU del producto cliente.
+ * @param clientName - Nombre o descripción del producto cliente.
+ * @param supplierSku - SKU del producto proveedor.
+ * @param supplierName - Nombre o descripción del producto proveedor.
+ * @returns Verdadero si existe conflicto semántico de variante que impide equivalencia.
+ */
+export function hasVariantConflict(
+  clientSku: string,
+  clientName: string | null | undefined,
+  supplierSku: string,
+  supplierName: string | null | undefined
+): boolean {
+  const clientMod = extractProductModifiers(clientSku, clientName);
+  const supplierMod = extractProductModifiers(supplierSku, supplierName);
+
+  if (clientMod.isKit !== supplierMod.isKit) {
+    return true;
+  }
+
+  if (clientMod.isFloat !== supplierMod.isFloat) {
+    return true;
+  }
+
+  if (clientMod.isCap !== supplierMod.isCap) {
+    return true;
+  }
+
+  if (clientMod.voltage && supplierMod.voltage && clientMod.voltage !== supplierMod.voltage) {
+    return true;
+  }
+
+  if (
+    (clientMod.voltage === "24V" && supplierMod.voltage !== "24V") ||
+    (supplierMod.voltage === "24V" && clientMod.voltage !== "24V")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+

@@ -11,7 +11,8 @@ import { mapConcurrent } from "./concurrency";
 import {
   brandsAreCompatible,
   extractSkuRoot,
-  getCompatibleBrandTokens
+  getCompatibleBrandTokens,
+  hasVariantConflict
 } from "./sku-normalizer";
 
 /**
@@ -98,13 +99,18 @@ export class CatalogReconciliationWorker {
           (Boolean(product.normalizedSku) && product.normalizedSku === candidate.normalizedSku);
 
         const candidateDecomp = extractSkuRoot(candidate.sku);
+        const variantConflict = hasVariantConflict(
+          product.sku,
+          product.name,
+          candidate.sku,
+          candidate.name
+        );
+
         const isRootSkuMatch =
           !isExactSku &&
+          !variantConflict &&
           rootSku.length >= 3 &&
-          (rootSku === candidateDecomp.rootSku ||
-            candidate.normalizedSku.startsWith(rootSku) ||
-            product.normalizedSku.startsWith(candidateDecomp.rootSku) ||
-            (candidateDecomp.baseCode.length >= 3 && candidateDecomp.baseCode === rootSku));
+          rootSku === candidateDecomp.rootSku;
 
         const brandsConflict =
           Boolean(product.brand) &&
@@ -127,6 +133,13 @@ export class CatalogReconciliationWorker {
               discrepancyReason: "NONE"
             };
           }
+        } else if (variantConflict) {
+          evaluation = {
+            isMatch: false,
+            confidenceScore: 0.20,
+            matchType: "DIFFERENT_PRODUCT",
+            discrepancyReason: "SPECIFICATION_MISMATCH"
+          };
         } else if (isRootSkuMatch) {
           if (brandsConflict) {
             evaluation = {

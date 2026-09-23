@@ -5,7 +5,9 @@ import {
   sanitizeBrand,
   brandsAreCompatible,
   extractSkuRoot,
-  getCompatibleBrandTokens
+  getCompatibleBrandTokens,
+  extractProductModifiers,
+  hasVariantConflict
 } from "../../src/sku-normalizer.js";
 
 describe("SPEC-NORM-002: Normalización de SKUs y Sanitización de Nombres", () => {
@@ -170,5 +172,96 @@ describe("SPEC-NORM-002: Normalización de SKUs y Sanitización de Nombres", () 
       expect(getCompatibleBrandTokens("")).toEqual([]);
     });
   });
+
+  describe("extractProductModifiers", () => {
+    it("detecta kits de reparación tanto en SKU como en descripción", () => {
+      const res1 = extractProductModifiers("FP-50100-KIT", "KIT REPARACION BOMBA GASOLINA");
+      expect(res1.isKit).toBe(true);
+
+      const res2 = extractProductModifiers("FP-50100", "BOMBA GASOLINA PILA");
+      expect(res2.isKit).toBe(false);
+    });
+
+    it("detecta flotadores y tapas en SKU y descripción", () => {
+      const resFloat = extractProductModifiers("FPM-GETZFLOAT", "FLOTADOR GASOLINA GETZ");
+      expect(resFloat.isFloat).toBe(true);
+      expect(resFloat.isCap).toBe(false);
+
+      const resCap = extractProductModifiers("FPM-GETZCAP", "TAPA BOMBA GASOLINA GETZ");
+      expect(resCap.isCap).toBe(true);
+      expect(resCap.isFloat).toBe(false);
+    });
+
+    it("detecta voltajes divergentes (12V vs 24V)", () => {
+      const res24v = extractProductModifiers("P43-100W-24V", "BOMBILLO HALOGENO 24V");
+      expect(res24v.voltage).toBe("24V");
+
+      const resStd = extractProductModifiers("P43-100W", "BOMBILLO HALOGENO H4");
+      expect(resStd.voltage).toBeNull();
+    });
+  });
+
+  describe("hasVariantConflict", () => {
+    it("identifica conflicto entre kit de reparación y bomba de gasolina base", () => {
+      const conflict = hasVariantConflict(
+        "FP-50100-KIT",
+        "KIT REPARACION BOMBA GASOLINA TOYOTA 4 RUNNER 03-09",
+        "FP-50100",
+        "BOMBA GASOLINA PILA TOYOTA 4RUNNER 03-09"
+      );
+      expect(conflict).toBe(true);
+    });
+
+    it("no detecta conflicto cuando ambos productos son la bomba base", () => {
+      const conflict = hasVariantConflict(
+        "FP-50100",
+        "BOMBA GASOLINA TOYOTA 4RUNNER 03-09 HONDA ACCORD",
+        "FP-50100",
+        "BOMBA GASOLINA PILA TOYOTA 4RUNNER 03-09"
+      );
+      expect(conflict).toBe(false);
+    });
+
+    it("identifica conflicto entre flotador y bomba módulo", () => {
+      const conflict = hasVariantConflict(
+        "FPM-GETZFLOAT",
+        "FLOTADOR GASOLINA HYUNDAI GETZ 02-05",
+        "FPM-GETZ",
+        "BOMBA GASOLINA MODULO HYUNDAI GETZ 02-05"
+      );
+      expect(conflict).toBe(true);
+    });
+
+    it("identifica conflicto entre tapa de bomba y módulo de bomba", () => {
+      const conflict = hasVariantConflict(
+        "FPM-GETZCAP",
+        "TAPA BOMBA GASOLINA HYUNDAI GETZ",
+        "FPM-GETZ",
+        "BOMBA GASOLINA MODULO HYUNDAI GETZ"
+      );
+      expect(conflict).toBe(true);
+    });
+
+    it("identifica conflicto entre bombillo 24V y bombillo estándar 12V", () => {
+      const conflict = hasVariantConflict(
+        "P43-100W-24V",
+        "BOMBILLO HALOGENO P43-100W 24V",
+        "P43-100W",
+        "BOMBILLO HALOGENO H4 P-43T100/90W"
+      );
+      expect(conflict).toBe(true);
+    });
+
+    it("no detecta conflicto cuando ambos especifican el mismo voltaje 24V", () => {
+      const conflict = hasVariantConflict(
+        "1034-24V-ENELB",
+        "BOMBILLO 1034 24V ENELBROCK",
+        "1034-24V",
+        "BOMBILLO 1034 24V"
+      );
+      expect(conflict).toBe(false);
+    });
+  });
 });
+
 

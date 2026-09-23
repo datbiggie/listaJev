@@ -29,14 +29,16 @@ export default async function DashboardLayout({
               href="/dashboard/ingest"
               className="flex items-center gap-2.5 font-bold tracking-tight text-zinc-900"
             >
+              {/* LOGO SIDEBAR
               <span className="flex size-8 items-center justify-center rounded-lg bg-zinc-900 text-white shadow-xs">
                 <LayersIcon className="size-4" />
               </span>
+              */}
               <div className="flex flex-col">
-                <span className="text-sm font-bold tracking-tight leading-none text-zinc-900">
+                <span className="text-[15px] font-bold tracking-tight leading-none text-green-700">
                   JOHBRI C.A.
                 </span>
-                <span className="text-[11px] text-zinc-500 font-semibold mt-0.5">
+                <span className="text-[13px] text-zinc-600 font-semibold mt-0.5">
                   Conciliación & Stock
                 </span>
               </div>
