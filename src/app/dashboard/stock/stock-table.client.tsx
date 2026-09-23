@@ -253,7 +253,7 @@ export function StockTableClient({
                 id="status-filter"
                 value={currentStatus || "TODOS"}
                 onChange={(e) => handleStatusChange(e.target.value)}
-                className="h-9 rounded-lg border border-zinc-300 bg-white pl-3 pr-8 text-xs font-semibold text-zinc-800 shadow-2xs hover:border-zinc-400 focus:border-zinc-900 focus:outline-hidden focus:ring-1 focus:ring-zinc-900 transition-colors cursor-pointer appearance-none"
+                className="h-9 rounded-lg border border-zinc-300 bg-white pl-3 pr-8 text-xs font-semibold text-zinc-800 shadow-2xs hover:border-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-0 transition-colors cursor-pointer appearance-none"
               >
                 <option value="TODOS">Todos los estados ({report.metrics.totalProducts.toLocaleString()})</option>
                 <option value="DISPONIBLE">Disponibles ({report.metrics.availableCount.toLocaleString()})</option>
@@ -269,7 +269,7 @@ export function StockTableClient({
             </div>
 
             {/* Grupo de Rango de Stock Integrado */}
-            <div className="inline-flex items-center h-9 rounded-lg border border-zinc-300 bg-white px-2.5 shadow-2xs focus-within:border-zinc-900 focus-within:ring-1 focus-within:ring-zinc-900 transition-colors">
+            <div className="inline-flex items-center h-9 rounded-lg border border-zinc-300 bg-white px-2.5 shadow-2xs hover:border-zinc-400 focus-within:border-zinc-400 focus-within:ring-0 focus-within:outline-none transition-colors">
               <span className="text-xs font-medium text-zinc-500 mr-2 select-none">
                 Stock:
               </span>
@@ -280,7 +280,7 @@ export function StockTableClient({
                 onChange={(e) => setMinStockInput(e.target.value)}
                 onKeyDown={handleStockKeyDown}
                 placeholder="Mín"
-                className="w-14 bg-transparent text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-hidden text-center font-mono"
+                className="w-14 bg-transparent text-xs text-zinc-900 placeholder:text-zinc-400 border-0 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none text-center font-mono shadow-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 title="Cantidad mínima de existencias"
               />
               <span className="text-zinc-300 mx-1 select-none">a</span>
@@ -291,7 +291,7 @@ export function StockTableClient({
                 onChange={(e) => setMaxStockInput(e.target.value)}
                 onKeyDown={handleStockKeyDown}
                 placeholder="Máx"
-                className="w-14 bg-transparent text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-hidden text-center font-mono"
+                className="w-14 bg-transparent text-xs text-zinc-900 placeholder:text-zinc-400 border-0 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none text-center font-mono shadow-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 title="Cantidad máxima de existencias"
               />
               <button
