@@ -2,5 +2,12 @@ node_modules/
 dist/
 coverage/
 .env
+.env*.local
 *.log
 .DS_Store
+
+# Next.js y compilacion
+.next/
+out/
+build/
+*.tsbuildinfo

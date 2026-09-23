@@ -43,6 +43,7 @@ export class JevSystemOneMatcher implements IAiMatcherService {
           content:
             "Eres un evaluador formal de equivalencias de catálogo de productos comerciales. " +
             "Determina si ambos registros corresponden al mismo producto físico y comercial exacto. " +
+            "Evalúa con rigor la compatibilidad de marcas comerciales: si ambos productos especifican marcas diferentes e incompatibles, clasifica la discrepancia como BRAND_MISMATCH y reduce la certeza. " +
             "Responde estrictamente con un JSON válido conteniendo: " +
             "isMatch (boolean), confidenceScore (number entre 0.0 y 1.0), " +
             "matchType ('EXACT_CODE' | 'EQUIVALENT_VARIANT' | 'DIFFERENT_PRODUCT'), " +
@@ -53,11 +54,13 @@ export class JevSystemOneMatcher implements IAiMatcherService {
           content: JSON.stringify({
             clientProduct: {
               sku: clientProduct.sku,
-              name: clientProduct.name
+              name: clientProduct.name,
+              brand: clientProduct.brand ?? "NO_ESPECIFICADA"
             },
             supplierCandidate: {
               sku: candidate.sku,
               name: candidate.name,
+              brand: candidate.brand ?? "NO_ESPECIFICADA",
               lexicalSimilarityScore: candidate.similarityScore
             }
           })

@@ -1,6 +1,8 @@
 import { Pool } from "pg";
 import {
   AuditItemViewDTO,
+  AuditPaginatedResult,
+  AuditReportFilterInput,
   ClientProduct,
   IProductRepository,
   MappingRecord,
@@ -21,11 +23,13 @@ export class PostgresProductRepository implements IProductRepository {
         c.sku, 
         c.normalized_sku AS "normalizedSku", 
         c.name,
+        c.brand,
         c.created_at AS "createdAt"
       FROM client_products c
       WHERE NOT EXISTS (
         SELECT 1 FROM product_mappings m 
         WHERE m.client_sku = c.sku
+          AND (m.status IN ('CONFIRMED', 'REQUIRES_REVIEW') OR m.supplier_sku IS NULL)
       )
       LIMIT $1;
     `;
@@ -33,11 +37,25 @@ export class PostgresProductRepository implements IProductRepository {
     return result.rows;
   }
 
+  public async getRejectedSupplierSkus(clientSku: string): Promise<string[]> {
+    const query = `
+      SELECT supplier_sku AS "supplierSku"
+      FROM product_mappings
+      WHERE client_sku = $1 AND status = 'REJECTED' AND supplier_sku IS NOT NULL;
+    `;
+    const result = await this.pool.query<{ supplierSku: string }>(query, [clientSku]);
+    return result.rows.map((row) => row.supplierSku);
+  }
+
   public async findSupplierCandidates(
     clientProductName: string,
     similarityThreshold: number,
     limit: number,
-    clientNormalizedSku?: string
+    clientNormalizedSku?: string,
+    clientBrand?: string | null,
+    clientRootSku?: string,
+    excludedSupplierSkus?: string[],
+    compatibleBrands?: string[]
   ): Promise<SupplierCandidate[]> {
     // Adquisición de cliente dedicado para encapsulación transaccional estricta
     const client = await this.pool.connect();
@@ -50,41 +68,63 @@ export class PostgresProductRepository implements IProductRepository {
         [similarityThreshold.toString()]
       );
 
-      let query: string;
-      let params: unknown[];
+      const normSku = clientNormalizedSku?.trim() || null;
+      const brand = clientBrand?.trim() || null;
+      const rootSku = clientRootSku?.trim() || null;
+      const excluded = excludedSupplierSkus && excludedSupplierSkus.length > 0 ? excludedSupplierSkus : null;
+      const compBrands = compatibleBrands && compatibleBrands.length > 0 ? compatibleBrands.map((b) => b.toUpperCase()) : null;
 
-      if (clientNormalizedSku && clientNormalizedSku.trim().length > 0) {
-        query = `
-          SELECT 
-            s.sku,
-            s.normalized_sku AS "normalizedSku",
-            s.name,
-            CASE 
-              WHEN s.normalized_sku = $3 THEN 1.0
-              ELSE similarity(s.name, $1)
-            END AS "similarityScore"
-          FROM supplier_products s
-          WHERE s.normalized_sku = $3 OR s.name % $1
-          ORDER BY 
-            (s.normalized_sku = $3) DESC,
-            "similarityScore" DESC
-          LIMIT $2;
-        `;
-        params = [clientProductName, limit, clientNormalizedSku.trim()];
-      } else {
-        query = `
-          SELECT 
-            s.sku,
-            s.normalized_sku AS "normalizedSku",
-            s.name,
-            similarity(s.name, $1) AS "similarityScore"
-          FROM supplier_products s
-          WHERE s.name % $1
-          ORDER BY "similarityScore" DESC
-          LIMIT $2;
-        `;
-        params = [clientProductName, limit];
-      }
+      const query = `
+        SELECT 
+          s.sku,
+          s.normalized_sku AS "normalizedSku",
+          s.name,
+          s.brand,
+          CASE 
+            WHEN $3::text IS NOT NULL AND s.normalized_sku = $3 THEN 1.0
+            WHEN $5::text IS NOT NULL AND (s.normalized_sku = $5 OR (length($5) >= 3 AND (s.normalized_sku LIKE $5 || '%' OR $3 LIKE s.normalized_sku || '%'))) THEN 0.95
+            ELSE similarity(s.name, $1)
+          END AS "similarityScore"
+        FROM supplier_products s
+        WHERE 
+          (
+            ($3::text IS NOT NULL AND s.normalized_sku = $3)
+            OR ($5::text IS NOT NULL AND (
+              s.normalized_sku = $5 
+              OR (length($5) >= 3 AND (s.normalized_sku LIKE $5 || '%' OR ($3::text IS NOT NULL AND $3 LIKE s.normalized_sku || '%')))
+            ))
+            OR s.name % $1
+          )
+          AND (
+            $6::text[] IS NULL 
+            OR s.sku != ALL($6::text[])
+          )
+        ORDER BY 
+          CASE 
+            WHEN $4::text IS NOT NULL AND s.brand IS NOT NULL THEN
+              CASE
+                WHEN $7::text[] IS NOT NULL AND UPPER(s.brand) = ANY($7::text[]) THEN 2
+                WHEN UPPER(s.brand) = UPPER($4::text) THEN 2
+                ELSE 0
+              END
+            ELSE 1
+          END DESC,
+          ($3::text IS NOT NULL AND s.normalized_sku = $3) DESC,
+          ($5::text IS NOT NULL AND s.normalized_sku = $5) DESC,
+          ($5::text IS NOT NULL AND length($5) >= 3 AND (s.normalized_sku LIKE $5 || '%' OR ($3::text IS NOT NULL AND $3 LIKE s.normalized_sku || '%'))) DESC,
+          "similarityScore" DESC
+        LIMIT $2;
+      `;
+
+      const params = [
+        clientProductName,
+        limit,
+        normSku,
+        brand,
+        rootSku,
+        excluded,
+        compBrands
+      ];
 
       const result = await client.query<SupplierCandidate>(query, params);
       await client.query("COMMIT;");
@@ -184,8 +224,10 @@ export class PostgresProductRepository implements IProductRepository {
           pm.id::text AS id,
           pm.client_sku AS "clientSku",
           cp.name AS "clientProductName",
+          cp.brand AS "clientBrand",
           pm.supplier_sku AS "supplierSku",
           sp.name AS "supplierProductName",
+          sp.brand AS "supplierBrand",
           CAST(pm.confidence_score AS FLOAT) AS "confidenceScore",
           pm.status AS status,
           pm.discrepancy_reason AS "discrepancyReason",
@@ -206,8 +248,10 @@ export class PostgresProductRepository implements IProductRepository {
         pm.id::text AS id,
         pm.client_sku AS "clientSku",
         cp.name AS "clientProductName",
+        cp.brand AS "clientBrand",
         pm.supplier_sku AS "supplierSku",
         sp.name AS "supplierProductName",
+        sp.brand AS "supplierBrand",
         CAST(pm.confidence_score AS FLOAT) AS "confidenceScore",
         pm.status AS status,
         pm.discrepancy_reason AS "discrepancyReason",
@@ -221,6 +265,78 @@ export class PostgresProductRepository implements IProductRepository {
     `;
     const result = await this.pool.query<AuditItemViewDTO>(query, [limit]);
     return result.rows;
+  }
+
+  public async getPaginatedAuditItems(
+    filters: AuditReportFilterInput
+  ): Promise<AuditPaginatedResult> {
+    const page = Math.max(1, filters.page || 1);
+    const pageSize = Math.max(1, Math.min(100, filters.pageSize || 50));
+    const offset = (page - 1) * pageSize;
+    const targetStatus = filters.tab === "REJECTED" ? "REJECTED" : "REQUIRES_REVIEW";
+
+    const conditions: string[] = ["pm.status = $1"];
+    const values: unknown[] = [targetStatus];
+    let paramIndex = 2;
+
+    if (filters.search && filters.search.trim().length > 0) {
+      conditions.push(
+        `(cp.sku ILIKE $${paramIndex} OR cp.name ILIKE $${paramIndex} OR cp.brand ILIKE $${paramIndex} OR pm.supplier_sku ILIKE $${paramIndex} OR sp.name ILIKE $${paramIndex} OR sp.brand ILIKE $${paramIndex})`
+      );
+      values.push(`%${filters.search.trim()}%`);
+      paramIndex++;
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const countQuery = `
+      SELECT COUNT(*)::int AS total
+      FROM product_mappings pm
+      JOIN client_products cp ON cp.sku = pm.client_sku
+      LEFT JOIN supplier_products sp ON sp.sku = pm.supplier_sku
+      ${whereClause};
+    `;
+
+    const itemsQuery = `
+      SELECT 
+        pm.id::text AS id,
+        pm.client_sku AS "clientSku",
+        cp.name AS "clientProductName",
+        cp.brand AS "clientBrand",
+        pm.supplier_sku AS "supplierSku",
+        sp.name AS "supplierProductName",
+        sp.brand AS "supplierBrand",
+        CAST(pm.confidence_score AS FLOAT) AS "confidenceScore",
+        pm.status AS status,
+        pm.discrepancy_reason AS "discrepancyReason",
+        pm.created_at AS "createdAt"
+      FROM product_mappings pm
+      JOIN client_products cp ON cp.sku = pm.client_sku
+      LEFT JOIN supplier_products sp ON sp.sku = pm.supplier_sku
+      ${whereClause}
+      ORDER BY pm.created_at ASC
+      LIMIT $${paramIndex++} OFFSET $${paramIndex++};
+    `;
+
+    const [countResult, itemsResult, metrics] = await Promise.all([
+      this.pool.query<{ total: number }>(countQuery, values),
+      this.pool.query<AuditItemViewDTO>(itemsQuery, [...values, pageSize, offset]),
+      this.getMappingStatusCounts()
+    ]);
+
+    const totalItems = countResult.rows[0]?.total ?? 0;
+    const totalPages = Math.ceil(totalItems / pageSize) || 1;
+
+    return {
+      items: itemsResult.rows,
+      pagination: {
+        currentPage: page,
+        pageSize,
+        totalItems,
+        totalPages
+      },
+      metrics
+    };
   }
 
   public async resetRejectedMappings(): Promise<number> {
@@ -308,54 +424,7 @@ export class PostgresProductRepository implements IProductRepository {
   }
 
   public async bulkUpsertClientProducts(
-    items: Array<{ sku: string; normalizedSku: string; name: string }>
-  ): Promise<number> {
-    if (items.length === 0) {
-      return 0;
-    }
-
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN;");
-
-      const chunkSize = 200;
-      let totalPersisted = 0;
-
-      for (let i = 0; i < items.length; i += chunkSize) {
-        const chunk = items.slice(i, i + chunkSize);
-        const values: unknown[] = [];
-        const rowPlaceholders: string[] = [];
-
-        chunk.forEach((item, idx) => {
-          const offset = idx * 3;
-          rowPlaceholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3})`);
-          values.push(item.sku, item.normalizedSku, item.name);
-        });
-
-        const query = `
-          INSERT INTO client_products (sku, normalized_sku, name)
-          VALUES ${rowPlaceholders.join(", ")}
-          ON CONFLICT (sku) DO UPDATE SET
-            normalized_sku = EXCLUDED.normalized_sku,
-            name = EXCLUDED.name;
-        `;
-
-        const result = await client.query(query, values);
-        totalPersisted += result.rowCount ?? chunk.length;
-      }
-
-      await client.query("COMMIT;");
-      return totalPersisted;
-    } catch (error) {
-      await client.query("ROLLBACK;");
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  public async bulkUpsertSupplierProducts(
-    items: Array<{ sku: string; normalizedSku: string; name: string; currentStock: number }>
+    items: Array<{ sku: string; normalizedSku: string; name: string; brand?: string | null }>
   ): Promise<number> {
     if (items.length === 0) {
       return 0;
@@ -376,15 +445,64 @@ export class PostgresProductRepository implements IProductRepository {
         chunk.forEach((item, idx) => {
           const offset = idx * 4;
           rowPlaceholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4})`);
-          values.push(item.sku, item.normalizedSku, item.name, item.currentStock);
+          values.push(item.sku, item.normalizedSku, item.name, item.brand ?? null);
         });
 
         const query = `
-          INSERT INTO supplier_products (sku, normalized_sku, name, current_stock)
+          INSERT INTO client_products (sku, normalized_sku, name, brand)
           VALUES ${rowPlaceholders.join(", ")}
           ON CONFLICT (sku) DO UPDATE SET
             normalized_sku = EXCLUDED.normalized_sku,
             name = EXCLUDED.name,
+            brand = COALESCE(EXCLUDED.brand, client_products.brand);
+        `;
+
+        const result = await client.query(query, values);
+        totalPersisted += result.rowCount ?? chunk.length;
+      }
+
+      await client.query("COMMIT;");
+      return totalPersisted;
+    } catch (error) {
+      await client.query("ROLLBACK;");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async bulkUpsertSupplierProducts(
+    items: Array<{ sku: string; normalizedSku: string; name: string; brand?: string | null; currentStock: number }>
+  ): Promise<number> {
+    if (items.length === 0) {
+      return 0;
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN;");
+
+      const chunkSize = 200;
+      let totalPersisted = 0;
+
+      for (let i = 0; i < items.length; i += chunkSize) {
+        const chunk = items.slice(i, i + chunkSize);
+        const values: unknown[] = [];
+        const rowPlaceholders: string[] = [];
+
+        chunk.forEach((item, idx) => {
+          const offset = idx * 5;
+          rowPlaceholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`);
+          values.push(item.sku, item.normalizedSku, item.name, item.brand ?? null, item.currentStock);
+        });
+
+        const query = `
+          INSERT INTO supplier_products (sku, normalized_sku, name, brand, current_stock)
+          VALUES ${rowPlaceholders.join(", ")}
+          ON CONFLICT (sku) DO UPDATE SET
+            normalized_sku = EXCLUDED.normalized_sku,
+            name = EXCLUDED.name,
+            brand = COALESCE(EXCLUDED.brand, supplier_products.brand),
             current_stock = EXCLUDED.current_stock,
             updated_at = CURRENT_TIMESTAMP;
         `;

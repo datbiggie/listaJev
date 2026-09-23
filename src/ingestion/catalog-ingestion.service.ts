@@ -5,7 +5,7 @@ import {
   IPdfExtractor,
   IProductRepository
 } from "../types";
-import { normalizeSku, sanitizeProductName } from "../sku-normalizer";
+import { normalizeSku, sanitizeProductName, sanitizeBrand } from "../sku-normalizer";
 
 /**
  * Servicio de orquestación para la ingesta y extracción de catálogos en PDF.
@@ -27,11 +27,15 @@ export class CatalogIngestionService implements ICatalogIngestionService {
     let discardedCount = 0;
 
     if (target === "CLIENT") {
-      const clientMap = new Map<string, { sku: string; normalizedSku: string; name: string }>();
+      const clientMap = new Map<
+        string,
+        { sku: string; normalizedSku: string; name: string; brand?: string | null }
+      >();
 
       for (const item of items) {
         const normalizedSku = normalizeSku(item.rawSku);
         const sanitizedName = sanitizeProductName(item.rawName);
+        const sanitizedBrand = sanitizeBrand(item.rawBrand);
 
         if (!normalizedSku || !sanitizedName) {
           discardedCount++;
@@ -42,7 +46,8 @@ export class CatalogIngestionService implements ICatalogIngestionService {
         clientMap.set(rawSku, {
           sku: rawSku,
           normalizedSku,
-          name: sanitizedName
+          name: sanitizedName,
+          brand: sanitizedBrand
         });
       }
 
@@ -61,12 +66,13 @@ export class CatalogIngestionService implements ICatalogIngestionService {
     } else {
       const supplierMap = new Map<
         string,
-        { sku: string; normalizedSku: string; name: string; currentStock: number }
+        { sku: string; normalizedSku: string; name: string; brand?: string | null; currentStock: number }
       >();
 
       for (const item of items) {
         const normalizedSku = normalizeSku(item.rawSku);
         const sanitizedName = sanitizeProductName(item.rawName);
+        const sanitizedBrand = sanitizeBrand(item.rawBrand);
 
         if (!normalizedSku || !sanitizedName) {
           discardedCount++;
@@ -78,6 +84,7 @@ export class CatalogIngestionService implements ICatalogIngestionService {
           sku: rawSku,
           normalizedSku,
           name: sanitizedName,
+          brand: sanitizedBrand,
           currentStock: Math.max(0, item.stock ?? 0)
         });
       }

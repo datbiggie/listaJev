@@ -14,11 +14,13 @@ CREATE TABLE IF NOT EXISTS client_products (
     sku VARCHAR(100) NOT NULL UNIQUE,
     normalized_sku VARCHAR(100) NOT NULL,
     name VARCHAR(255) NOT NULL,
+    brand VARCHAR(100),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_client_normalized_sku ON client_products(normalized_sku);
 CREATE INDEX IF NOT EXISTS idx_client_name_trgm ON client_products USING gin (name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_client_brand ON client_products(brand);
 
 -- Catálogo de productos proveedor
 CREATE TABLE IF NOT EXISTS supplier_products (
@@ -26,12 +28,14 @@ CREATE TABLE IF NOT EXISTS supplier_products (
     sku VARCHAR(100) NOT NULL UNIQUE,
     normalized_sku VARCHAR(100) NOT NULL,
     name VARCHAR(255) NOT NULL,
+    brand VARCHAR(100),
     current_stock INTEGER NOT NULL DEFAULT 0,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_supplier_normalized_sku ON supplier_products(normalized_sku);
 CREATE INDEX IF NOT EXISTS idx_supplier_name_trgm ON supplier_products USING gin (name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_supplier_brand ON supplier_products(brand);
 
 -- Tabla de mapeos y resoluciones semánticas
 CREATE TABLE IF NOT EXISTS product_mappings (

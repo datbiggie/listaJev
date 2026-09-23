@@ -125,14 +125,39 @@ describe("SPEC-INGEST-PDF-010: UnpdfExtractor", () => {
     expect(result.items).toHaveLength(3);
     expect(result.items[0]?.rawSku).toBe("8483N-3P");
     expect(result.items[0]?.rawName).toBe(
-      "ALTERNADOR AVEO 1.6L 04/08 12V SISTEMA IAC SIST. DELCO AD221 12V 85A 3 PINES ENELBROCK"
+      "ALTERNADOR AVEO 1.6L 04/08 12V SISTEMA IAC SIST. DELCO AD221 12V 85A 3 PINES"
     );
+    expect(result.items[0]?.rawBrand).toBe("ENELBROCK");
     expect(result.items[0]?.stock).toBe(0);
 
     expect(result.items[1]?.rawSku).toBe("001");
-    expect(result.items[1]?.rawName).toBe("BORNE DE PLOMO PARA AUTOMOVIL PEQUEÑO NACIONAL");
+    expect(result.items[1]?.rawName).toBe("BORNE DE PLOMO PARA AUTOMOVIL PEQUEÑO");
+    expect(result.items[1]?.rawBrand).toBe("NACIONAL");
 
     expect(result.items[2]?.rawSku).toBe("8200678386");
-    expect(result.items[2]?.rawName).toBe("VARILLA MEDIR ACEITE RENAULT LOGAN SYMBO L 1.6L 8V ENELBROCK");
+    expect(result.items[2]?.rawName).toBe("VARILLA MEDIR ACEITE RENAULT LOGAN SYMBO L 1.6L 8V");
+    expect(result.items[2]?.rawBrand).toBe("ENELBROCK");
+  });
+
+  it("extrae correctamente líneas con puntos y comas accidentales en la descripción o marca", async () => {
+    const mockPageText = `
+      LISTA DE PRECIOS
+      SE9015416 SENSOR MAP GM AVEO 1.6 LS CHERY QQ OEM; PORTER 36 Bs.12.548,93 $14.90
+    `;
+
+    vi.mocked(getDocumentProxy).mockResolvedValueOnce({} as any);
+    vi.mocked(extractText).mockResolvedValueOnce({
+      totalPages: 1,
+      text: [mockPageText]
+    });
+
+    const dummyBuffer = new Uint8Array([37, 80, 68, 70]).buffer;
+    const result = await extractor.extractItems(dummyBuffer);
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.rawSku).toBe("SE9015416");
+    expect(result.items[0]?.rawName).toBe("SENSOR MAP GM AVEO 1.6 LS CHERY QQ OEM");
+    expect(result.items[0]?.rawBrand).toBe("PORTER");
+    expect(result.items[0]?.stock).toBe(36);
   });
 });

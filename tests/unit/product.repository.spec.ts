@@ -39,6 +39,21 @@ describe("SPEC-REPO-004: PostgresProductRepository", () => {
     });
   });
 
+  describe("getRejectedSupplierSkus", () => {
+    it("obtiene el listado de supplier_sku descartados para un client_sku específico", async () => {
+      const mockRows = [{ supplierSku: "SUP-REJECTED-1" }, { supplierSku: "SUP-REJECTED-2" }];
+      vi.mocked(mockPool.query).mockResolvedValueOnce({ rows: mockRows } as any);
+
+      const result = await repository.getRejectedSupplierSkus("CLI-1");
+
+      expect(result).toEqual(["SUP-REJECTED-1", "SUP-REJECTED-2"]);
+      expect(mockPool.query).toHaveBeenCalledWith(
+        expect.stringContaining("WHERE client_sku = $1 AND status = 'REJECTED'"),
+        ["CLI-1"]
+      );
+    });
+  });
+
   describe("findSupplierCandidates (Aislamiento con SET LOCAL)", () => {
     it("adquiere cliente, ejecuta BEGIN, SET LOCAL y COMMIT, y libera el cliente en finally", async () => {
       const mockCandidates = [
@@ -51,7 +66,7 @@ describe("SPEC-REPO-004: PostgresProductRepository", () => {
         .mockResolvedValueOnce({ rows: mockCandidates } as any) // SELECT
         .mockResolvedValueOnce({} as any); // COMMIT
 
-      const candidates = await repository.findSupplierCandidates("Prod 1", 0.65, 3);
+      const candidates = await repository.findSupplierCandidates("Prod 1", 0.65, 3, "CLI1", "ENELBROCK");
 
       expect(candidates).toEqual(mockCandidates);
       expect(mockPool.connect).toHaveBeenCalledTimes(1);
@@ -61,8 +76,51 @@ describe("SPEC-REPO-004: PostgresProductRepository", () => {
         "SELECT set_config('pg_trgm.similarity_threshold', $1::text, true);",
         ["0.65"]
       );
+      expect(mockClient.query).toHaveBeenNthCalledWith(
+        3,
+        expect.stringContaining("s.brand"),
+        ["Prod 1", 3, "CLI1", "ENELBROCK", null, null, null]
+      );
       expect(mockClient.query).toHaveBeenNthCalledWith(4, "COMMIT;");
       expect(mockClient.release).toHaveBeenCalledTimes(1);
+    });
+
+    it("pasa clientRootSku, excludedSupplierSkus y compatibleBrands a la consulta", async () => {
+      const mockCandidates = [
+        { sku: "SUP-ROOT-1", normalizedSku: "SUPROOT1", name: "Prod Root", similarityScore: 0.95 }
+      ];
+
+      vi.mocked(mockClient.query)
+        .mockResolvedValueOnce({} as any) // BEGIN
+        .mockResolvedValueOnce({} as any) // set_config
+        .mockResolvedValueOnce({ rows: mockCandidates } as any) // SELECT
+        .mockResolvedValueOnce({} as any); // COMMIT
+
+      const candidates = await repository.findSupplierCandidates(
+        "Prod 1",
+        0.65,
+        3,
+        "CLI1ENELB",
+        "ENELBROCK",
+        "CLI1",
+        ["SUP-OLD"],
+        ["ENELBROCK", "ENELB"]
+      );
+
+      expect(candidates).toEqual(mockCandidates);
+      expect(mockClient.query).toHaveBeenNthCalledWith(
+        3,
+        expect.stringContaining("s.sku != ALL"),
+        [
+          "Prod 1",
+          3,
+          "CLI1ENELB",
+          "ENELBROCK",
+          "CLI1",
+          ["SUP-OLD"],
+          ["ENELBROCK", "ENELB"]
+        ]
+      );
     });
 
     it("ejecuta ROLLBACK y libera el cliente si la consulta falla", async () => {
@@ -185,6 +243,115 @@ describe("SPEC-REPO-004: PostgresProductRepository", () => {
       await expect(
         repository.resolveAuditReview("CLI-3", "CONFIRMED", "   ")
       ).rejects.toThrow("El identificador del revisor es obligatorio para la auditoría");
+    });
+  });
+
+  describe("getPaginatedAuditItems", () => {
+    it("obtiene items paginados para pestaña REVIEW calculando totalPages y métricas", async () => {
+      const mockCountResult = { rows: [{ total: 124 }] };
+      const mockItemsResult = {
+        rows: [
+          {
+            id: "uuid-1",
+            clientSku: "CLI-1",
+            clientProductName: "Prod 1",
+            clientBrand: "Apple",
+            supplierSku: "SUP-1",
+            supplierProductName: "Supp Prod 1",
+            supplierBrand: "Apple",
+            confidenceScore: 0.85,
+            status: "REQUIRES_REVIEW",
+            discrepancyReason: "VARIANT_MISMATCH",
+            createdAt: new Date()
+          }
+        ]
+      };
+      const mockStatusCounts = {
+        rows: [
+          { status: "CONFIRMED", count: "2778" },
+          { status: "REQUIRES_REVIEW", count: "124" },
+          { status: "REJECTED", count: "478" }
+        ]
+      };
+      const mockClientTotal = { rows: [{ count: "3380" }] };
+
+      vi.mocked(mockPool.query)
+        .mockResolvedValueOnce(mockCountResult as any)
+        .mockResolvedValueOnce(mockItemsResult as any)
+        .mockResolvedValueOnce(mockStatusCounts as any)
+        .mockResolvedValueOnce(mockClientTotal as any);
+
+      const result = await repository.getPaginatedAuditItems({
+        tab: "REVIEW",
+        page: 1,
+        pageSize: 50
+      });
+
+      expect(result.items).toEqual(mockItemsResult.rows);
+      expect(result.pagination).toEqual({
+        currentPage: 1,
+        pageSize: 50,
+        totalItems: 124,
+        totalPages: 3
+      });
+      expect(result.metrics).toEqual({
+        confirmed: 2778,
+        requiresReview: 124,
+        rejected: 478,
+        totalClient: 3380
+      });
+      expect(mockPool.query).toHaveBeenCalledWith(
+        expect.stringContaining("pm.status = $1"),
+        ["REQUIRES_REVIEW"]
+      );
+    });
+
+    it("aplica filtro de búsqueda e invoca con pestaña REJECTED", async () => {
+      const mockCountResult = { rows: [{ total: 2 }] };
+      const mockItemsResult = {
+        rows: [
+          {
+            id: "uuid-2",
+            clientSku: "CLI-2",
+            clientProductName: "Batería Samsung",
+            clientBrand: "Samsung",
+            supplierSku: null,
+            supplierProductName: null,
+            supplierBrand: null,
+            confidenceScore: 0,
+            status: "REJECTED",
+            discrepancyReason: "NO_CANDIDATES_FOUND",
+            createdAt: new Date()
+          }
+        ]
+      };
+      const mockStatusCounts = { rows: [] };
+      const mockClientTotal = { rows: [{ count: "3380" }] };
+
+      vi.mocked(mockPool.query)
+        .mockResolvedValueOnce(mockCountResult as any)
+        .mockResolvedValueOnce(mockItemsResult as any)
+        .mockResolvedValueOnce(mockStatusCounts as any)
+        .mockResolvedValueOnce(mockClientTotal as any);
+
+      const result = await repository.getPaginatedAuditItems({
+        tab: "REJECTED",
+        search: "Samsung",
+        page: 2,
+        pageSize: 10
+      });
+
+      expect(result.items).toHaveLength(1);
+      expect(result.pagination).toEqual({
+        currentPage: 2,
+        pageSize: 10,
+        totalItems: 2,
+        totalPages: 1
+      });
+      expect(mockPool.query).toHaveBeenCalledWith(
+        expect.stringContaining("ILIKE $2"),
+        ["REJECTED", "%Samsung%"]
+      );
     });
   });
 

@@ -151,4 +151,40 @@ describe("SPEC-AI-005: Servicio JevSystemOneMatcher", () => {
       "Clave de API no configurada para el servicio de inferencia"
     );
   });
+
+  it("envía la marca en el payload estructurado a AI Gateway", async () => {
+    const mockOutput = {
+      isMatch: true,
+      confidenceScore: 0.92,
+      matchType: "EQUIVALENT_VARIANT",
+      discrepancyReason: "NONE"
+    };
+
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(mockOutput) } }]
+      })
+    });
+
+    const productWithBrand: ClientProduct = {
+      ...clientProduct,
+      brand: "ENELBROCK"
+    };
+    const candidateWithBrand: SupplierCandidate = {
+      ...candidate,
+      brand: "ENELBROCK"
+    };
+
+    const matcher = new JevSystemOneMatcher("typesafe-ai/jev", 3, 10, "test-api-key");
+    await matcher.evaluateMatch(productWithBrand, candidateWithBrand);
+
+    const callArgs = (vi.mocked(global.fetch).mock.calls[0]![1] as any);
+    const bodyObj = JSON.parse(callArgs.body);
+    const userContent = JSON.parse(bodyObj.messages[1].content);
+
+    expect(userContent.clientProduct.brand).toBe("ENELBROCK");
+    expect(userContent.supplierCandidate.brand).toBe("ENELBROCK");
+  });
 });

@@ -58,7 +58,8 @@ export class UnpdfExtractor implements IPdfExtractor {
       lower.startsWith("lista de precios") ||
       lower.includes("r.i.f") ||
       /^\d{2}\/\d{2}\/\d{4}/.test(line) ||
-      /^(sku|código|codigo|referencia|ref|item|cód|cod)(?:[\t|;]|\s{2,}|\s+(?:desc|nom|art|prod|cant|stock|prec|total))/i.test(line) ||
+      /^(sku|código|codigo|referencia|ref|item|cód|cod)(?:[\t|;]|\s{2,}|\s+(?:desc|nom|art|prod|cant|stock|prec|total|marca))/i.test(line) ||
+      /(?:sku|código|codigo).*(?:desc|nom).*(?:marca|brand)/i.test(line) ||
       /^={3,}|^---/.test(line)
     ) {
       return true;
@@ -69,51 +70,114 @@ export class UnpdfExtractor implements IPdfExtractor {
   private parseLine(line: string): ExtractedCatalogItem | null {
     // 1. Estrategia A: Delimitadores explícitos (\t, |, ;, o 2+ espacios)
     const sep = "(?:\\t|\\||;|\\s{2,})";
-    const pattern = new RegExp(
-      `^\\s*(?<sku>[A-Za-z0-9\\-_\\.\\/]{2,})\\s*${sep}\\s*(?<name>.+?)(?:\\s*${sep}\\s*(?<stock>\\d+))?\\s*$`
-    );
-    const match = pattern.exec(line);
-    if (match?.groups?.["sku"] && match?.groups?.["name"]) {
-      const rawSku = match.groups["sku"].trim();
-      const rawName = match.groups["name"].trim();
-      const stockStr = match.groups["stock"];
-      const stock = stockStr !== undefined ? parseInt(stockStr, 10) : 0;
-      return {
-        rawSku,
-        rawName,
-        stock: isNaN(stock) ? 0 : Math.max(0, stock)
-      };
+    const parts = line.split(new RegExp(sep)).map((p) => p.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const rawSku = parts[0]!;
+      if (rawSku.length >= 2 && rawSku.split(/\s+/).length <= 2 && rawSku.length <= 40) {
+        if (parts.length >= 4) {
+          const part3IsNumber = /^\d+$/.test(parts[2]!);
+          const part4IsNumber = /^\d+$/.test(parts[3]!);
+          if (part4IsNumber) {
+            return {
+              rawSku,
+              rawName: parts[1]!,
+              rawBrand: parts[2]!,
+              stock: parseInt(parts[3]!, 10)
+            };
+          } else if (part3IsNumber) {
+            return {
+              rawSku,
+              rawName: parts[1]!,
+              rawBrand: parts[3]!,
+              stock: parseInt(parts[2]!, 10)
+            };
+          }
+        }
+        if (parts.length === 3) {
+          const isNumber = /^\d+$/.test(parts[2]!);
+          if (isNumber) {
+            return {
+              rawSku,
+              rawName: parts[1]!,
+              stock: parseInt(parts[2]!, 10)
+            };
+          } else {
+            return {
+              rawSku,
+              rawName: parts[1]!,
+              rawBrand: parts[2]!,
+              stock: 0
+            };
+          }
+        }
+        if (parts.length === 2) {
+          return {
+            rawSku,
+            rawName: parts[1]!,
+            stock: 0
+          };
+        }
+      }
     }
 
+    const sanitizedLine = line.replace(/;\s*/g, " ");
+
     // 2. Estrategia B: Catálogos comerciales con stock y montos monetarios (Bs., $, USD, EUR, €)
-    // Ejemplo: 8483N-3P-ENELB ALTERNADOR AVEO ... ENELBROCK 25 Bs.107.381,78 $127.50
+    // Ejemplo: 8483N-3P-ENELB ALTERNADOR AVEO 1.6L 04-08 12V 85A 3PINE ENELBROCK 25 Bs.107.381,78 $127.50
     const priceWithStockPattern =
-      /^\s*(?<sku>[A-Za-z0-9][A-Za-z0-9\-_./]{1,})\s+(?<name>.+?)\s+(?<stock>\d+)\s+(?:Bs\.?|USD|\$|EUR|€)\s*[\d.,]+(?:\s+(?:Bs\.?|USD|\$|EUR|€)\s*[\d.,]+)*\s*$/i;
-    const priceWithStockMatch = priceWithStockPattern.exec(line);
-    if (priceWithStockMatch?.groups?.["sku"] && priceWithStockMatch?.groups?.["name"]) {
+      /^\s*(?<sku>[A-Za-z0-9][A-Za-z0-9\-_./]{1,})\s+(?<nameAndBrand>.+?)\s+(?<stock>\d+)\s+(?:Bs\.?|USD|\$|EUR|€)\s*[\d.,]+(?:\s+(?:Bs\.?|USD|\$|EUR|€)\s*[\d.,]+)*\s*$/i;
+    const priceWithStockMatch = priceWithStockPattern.exec(sanitizedLine);
+    if (priceWithStockMatch?.groups?.["sku"] && priceWithStockMatch?.groups?.["nameAndBrand"]) {
       const rawSku = priceWithStockMatch.groups["sku"].trim();
-      const rawName = priceWithStockMatch.groups["name"].trim();
+      const nameAndBrand = priceWithStockMatch.groups["nameAndBrand"].trim();
       const stock = parseInt(priceWithStockMatch.groups["stock"] ?? "0", 10);
+
+      const lastSpace = nameAndBrand.lastIndexOf(" ");
+      let rawName = nameAndBrand;
+      let rawBrand: string | undefined;
+
+      if (lastSpace > 0) {
+        const potentialBrand = nameAndBrand.slice(lastSpace + 1).trim();
+        if (potentialBrand.length >= 2 && !/^(12V|24V|4X4|4X2|L|V|CC|MM)$/i.test(potentialBrand)) {
+          rawName = nameAndBrand.slice(0, lastSpace).trim();
+          rawBrand = potentialBrand;
+        }
+      }
+
       return {
         rawSku,
         rawName,
+        rawBrand,
         stock: isNaN(stock) ? 0 : Math.max(0, stock)
       };
     }
 
     // 3. Estrategia C: Listas de precios comerciales estándar con precio decimal final
     // Ejemplo: 8483N-3P ALTERNADOR AVEO 1.6L ... ENELBROCK 138,75
-    const trailingPriceMatch = /\s+(?:(?:\$|USD|Bs\.?|EUR|€)\s*)?(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/i.exec(line);
+    const trailingPriceMatch = /\s+(?:(?:\$|USD|Bs\.?|EUR|€)\s*)?(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/i.exec(sanitizedLine);
     if (trailingPriceMatch && trailingPriceMatch.index > 0) {
-      const beforePrice = line.slice(0, trailingPriceMatch.index).trim();
+      const beforePrice = sanitizedLine.slice(0, trailingPriceMatch.index).trim();
       const firstSpace = beforePrice.indexOf(" ");
       if (firstSpace > 0) {
         const rawSku = beforePrice.slice(0, firstSpace).trim();
-        const rawName = beforePrice.slice(firstSpace).trim();
-        if (rawSku.length >= 2 && rawName.length >= 2) {
+        const rest = beforePrice.slice(firstSpace).trim();
+        if (rawSku.length >= 2 && rest.length >= 2) {
+          const lastSpace = rest.lastIndexOf(" ");
+          let rawName = rest;
+          let rawBrand: string | undefined;
+
+          if (lastSpace > 0) {
+            const potentialBrand = rest.slice(lastSpace + 1).trim();
+            if (potentialBrand.length >= 2 && !/^(12V|24V|4X4|4X2|L|V|CC|MM)$/i.test(potentialBrand)) {
+              rawName = rest.slice(0, lastSpace).trim();
+              rawBrand = potentialBrand;
+            }
+          }
+
           return {
             rawSku,
             rawName,
+            rawBrand,
             stock: 0
           };
         }

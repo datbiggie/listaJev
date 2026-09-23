@@ -51,6 +51,7 @@ export interface ClientProduct {
   sku: string;
   normalizedSku: string;
   name: string;
+  brand?: string | null;
   createdAt?: Date;
 }
 
@@ -62,6 +63,7 @@ export interface SupplierProduct {
   sku: string;
   normalizedSku: string;
   name: string;
+  brand?: string | null;
   currentStock: number;
   updatedAt?: Date;
 }
@@ -73,7 +75,16 @@ export interface SupplierCandidate {
   sku: string;
   normalizedSku: string;
   name: string;
+  brand?: string | null;
   similarityScore: number;
+}
+
+export type BrandAliasMap = Record<string, string[]>;
+
+export interface SkuDecomposition {
+  rootSku: string;
+  brandToken: string | null;
+  baseCode: string;
 }
 
 /**
@@ -97,7 +108,9 @@ export interface MappingRecord {
 export interface StockReconciliationItem {
   clientSku: string;
   clientProductName: string;
+  clientBrand?: string | null;
   supplierSku: string | null;
+  supplierBrand?: string | null;
   supplierStock: number;
   stockStatus: StockStatus;
 }
@@ -123,6 +136,7 @@ export type CatalogTarget = z.infer<typeof CatalogTargetSchema>;
 export const ExtractedCatalogItemSchema = z.object({
   rawSku: z.string().min(1).describe("Código o referencia original detectada en el documento."),
   rawName: z.string().min(1).describe("Descripción o denominación del producto."),
+  rawBrand: z.string().optional().describe("Marca comercial detectada en el documento."),
   stock: z.number().int().nonnegative().optional().default(0).describe("Cantidad en existencia (aplica prioritariamente a proveedores).")
 });
 export type ExtractedCatalogItem = z.infer<typeof ExtractedCatalogItemSchema>;
@@ -198,8 +212,10 @@ export interface AuditItemViewDTO {
   id: string;
   clientSku: string;
   clientProductName: string;
+  clientBrand?: string | null;
   supplierSku: string | null;
   supplierProductName: string | null;
+  supplierBrand?: string | null;
   confidenceScore: number;
   status: MappingStatus;
   discrepancyReason: string;
@@ -218,6 +234,36 @@ export const ResolveReviewActionSchema = z.object({
 export type ResolveReviewActionInput = z.infer<typeof ResolveReviewActionSchema>;
 
 /**
+ * Esquema de validación para filtros y paginación de la bandeja de auditoría.
+ */
+export const AuditReportFilterSchema = z.object({
+  tab: z.enum(["REVIEW", "REJECTED"]).default("REVIEW"),
+  search: z.string().optional(),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(100).default(50)
+});
+export type AuditReportFilterInput = z.infer<typeof AuditReportFilterSchema>;
+
+/**
+ * Resultado paginado y métricas consolidadas de la bandeja de auditoría.
+ */
+export interface AuditPaginatedResult {
+  items: AuditItemViewDTO[];
+  pagination: {
+    currentPage: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+  };
+  metrics: {
+    confirmed: number;
+    requiresReview: number;
+    rejected: number;
+    totalClient: number;
+  };
+}
+
+/**
  * Esquema de validación para filtros y paginación del tablero de stock.
  */
 export const StockReportFilterSchema = z.object({
@@ -225,6 +271,10 @@ export const StockReportFilterSchema = z.object({
     .enum(["TODOS", "DISPONIBLE", "AGOTADO", "DESCATALOGADO_PROVEEDOR", "NO_CATALOGADO"])
     .default("TODOS"),
   search: z.string().optional(),
+  minStock: z.coerce.number().int().nonnegative().optional(),
+  maxStock: z.coerce.number().int().nonnegative().optional(),
+  sortBy: z.enum(["sku", "stock"]).default("stock"),
+  sortOrder: z.enum(["asc", "desc"]).default("asc"),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(50)
 });
@@ -237,7 +287,9 @@ export interface StockReportPaginatedResult {
   items: Array<{
     clientSku: string;
     clientProductName: string;
+    clientBrand?: string | null;
     supplierSku: string | null;
+    supplierBrand?: string | null;
     supplierStock: number;
     stockStatus: StockStatus;
   }>;
@@ -265,11 +317,17 @@ export interface IProductRepository {
     clientProductName: string,
     similarityThreshold: number,
     limit: number,
-    clientNormalizedSku?: string
+    clientNormalizedSku?: string,
+    clientBrand?: string | null,
+    clientRootSku?: string,
+    excludedSupplierSkus?: string[],
+    compatibleBrands?: string[]
   ): Promise<SupplierCandidate[]>;
+  getRejectedSupplierSkus?(clientSku: string): Promise<string[]>;
   saveMapping(record: MappingRecord): Promise<void>;
   getPendingReviews(limit: number): Promise<MappingRecord[]>;
   getAuditItemsView(limit: number, status?: MappingStatus): Promise<AuditItemViewDTO[]>;
+  getPaginatedAuditItems(filters: AuditReportFilterInput): Promise<AuditPaginatedResult>;
   resetRejectedMappings(): Promise<number>;
   getMappingStatusCounts(): Promise<{
     confirmed: number;
@@ -284,10 +342,10 @@ export interface IProductRepository {
     reviewer?: string
   ): Promise<void>;
   bulkUpsertClientProducts(
-    items: Array<{ sku: string; normalizedSku: string; name: string }>
+    items: Array<{ sku: string; normalizedSku: string; name: string; brand?: string | null }>
   ): Promise<number>;
   bulkUpsertSupplierProducts(
-    items: Array<{ sku: string; normalizedSku: string; name: string; currentStock: number }>
+    items: Array<{ sku: string; normalizedSku: string; name: string; brand?: string | null; currentStock: number }>
   ): Promise<number>;
 }
 

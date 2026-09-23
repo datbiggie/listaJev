@@ -50,14 +50,14 @@ describe("SPEC-INGEST-PDF-010: CatalogIngestionService", () => {
     expect(summary.executionTimeMs).toBeGreaterThanOrEqual(0);
 
     expect(mockRepo.bulkUpsertClientProducts).toHaveBeenCalledWith([
-      { sku: "prod-100", normalizedSku: "PROD100", name: "Tornillo Hexagonal 1/2" },
-      { sku: "prod_200", normalizedSku: "PROD200", name: "Tuerca M10" }
+      { sku: "prod-100", normalizedSku: "PROD100", name: "Tornillo Hexagonal 1/2", brand: null },
+      { sku: "prod_200", normalizedSku: "PROD200", name: "Tuerca M10", brand: null }
     ]);
   });
 
   it("procesa catálogo SUPPLIER y preserva el stock persistiendo en bulkUpsertSupplierProducts", async () => {
     const rawItems: ExtractedCatalogItem[] = [
-      { rawSku: "SUP-001", rawName: "Filtro de Aceite", stock: 42 }
+      { rawSku: "SUP-001", rawName: "Filtro de Aceite", rawBrand: "ENELBROCK", stock: 42 }
     ];
 
     vi.mocked(mockExtractor.extractItems).mockResolvedValueOnce({
@@ -75,14 +75,14 @@ describe("SPEC-INGEST-PDF-010: CatalogIngestionService", () => {
     expect(summary.discardedCount).toBe(0);
 
     expect(mockRepo.bulkUpsertSupplierProducts).toHaveBeenCalledWith([
-      { sku: "SUP-001", normalizedSku: "SUP001", name: "Filtro de Aceite", currentStock: 42 }
+      { sku: "SUP-001", normalizedSku: "SUP001", name: "Filtro de Aceite", brand: "ENELBROCK", currentStock: 42 }
     ]);
   });
 
   it("deduplica ítems con el mismo SKU dentro del mismo lote para evitar errores en PostgreSQL", async () => {
     const rawItems: ExtractedCatalogItem[] = [
       { rawSku: "SUP-001", rawName: "Filtro Versión Vieja", stock: 10 },
-      { rawSku: "SUP-001", rawName: "Filtro Versión Actualizada", stock: 25 }
+      { rawSku: "SUP-001", rawName: "Filtro Versión Actualizada", rawBrand: "PORTER", stock: 25 }
     ];
 
     vi.mocked(mockExtractor.extractItems).mockResolvedValueOnce({
@@ -97,7 +97,7 @@ describe("SPEC-INGEST-PDF-010: CatalogIngestionService", () => {
 
     expect(summary.extractedCount).toBe(2);
     expect(mockRepo.bulkUpsertSupplierProducts).toHaveBeenCalledWith([
-      { sku: "SUP-001", normalizedSku: "SUP001", name: "Filtro Versión Actualizada", currentStock: 25 }
+      { sku: "SUP-001", normalizedSku: "SUP001", name: "Filtro Versión Actualizada", brand: "PORTER", currentStock: 25 }
     ]);
   });
 });

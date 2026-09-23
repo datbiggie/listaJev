@@ -244,4 +244,170 @@ describe("SPEC-WORKER-006: CatalogReconciliationWorker", () => {
       discrepancyReason: "NO_CANDIDATES_FOUND"
     });
   });
+
+  it("deriva a REQUIRES_REVIEW con BRAND_MISMATCH cuando el SKU coincide pero las marcas son distintas", async () => {
+    const productWithBrand: ClientProduct = {
+      id: "prod-brand-1",
+      sku: "SKU-MATCH-99",
+      normalizedSku: "SKUMATCH99",
+      name: "Alternador Aveo Bosch",
+      brand: "BOSCH"
+    };
+
+    const candidateWithDiffBrand: SupplierCandidate = {
+      sku: "SKU-MATCH-99",
+      normalizedSku: "SKUMATCH99",
+      name: "Alternador Aveo Valeo",
+      brand: "VALEO",
+      similarityScore: 1.0
+    };
+
+    vi.mocked(mockRepo.getUnmappedClientProducts).mockResolvedValueOnce([productWithBrand]);
+    vi.mocked(mockRepo.findSupplierCandidates).mockResolvedValueOnce([candidateWithDiffBrand]);
+
+    const res = await worker.runBatch();
+
+    expect(res.processed).toBe(1);
+    expect(res.resolved).toBe(1);
+    expect(mockRepo.saveMapping).toHaveBeenCalledWith({
+      clientSku: "SKU-MATCH-99",
+      supplierSku: "SKU-MATCH-99",
+      confidenceScore: 0.75,
+      status: "REQUIRES_REVIEW",
+      discrepancyReason: "BRAND_MISMATCH"
+    });
+  });
+
+  it("prioriza CONFIRMED con C1098-ENELBROCK sobre C1098 de marca incompatible (PORTER)", async () => {
+    const clientProduct: ClientProduct = {
+      id: "prod-c1098",
+      sku: "C1098",
+      normalizedSku: "C1098",
+      name: "Pastilla de Freno Enelbrock",
+      brand: "Enelbrock"
+    };
+
+    const wrongCandidatePorter: SupplierCandidate = {
+      sku: "C1098",
+      normalizedSku: "C1098",
+      name: "Pastilla de Freno Porter",
+      brand: "PORTER",
+      similarityScore: 1.0
+    };
+
+    const correctCandidateEnelbrock: SupplierCandidate = {
+      sku: "C1098-ENELBROCK",
+      normalizedSku: "C1098ENELBROCK",
+      name: "Pastilla de Freno Enelbrock",
+      brand: "Enelbrock",
+      similarityScore: 0.95
+    };
+
+    vi.mocked(mockRepo.getUnmappedClientProducts).mockResolvedValueOnce([clientProduct]);
+    vi.mocked(mockRepo.findSupplierCandidates).mockResolvedValueOnce([
+      wrongCandidatePorter,
+      correctCandidateEnelbrock
+    ]);
+
+    const res = await worker.runBatch();
+
+    expect(res.processed).toBe(1);
+    expect(res.resolved).toBe(1);
+    expect(mockRepo.saveMapping).toHaveBeenCalledWith({
+      clientSku: "C1098",
+      supplierSku: "C1098-ENELBROCK",
+      confidenceScore: 0.95,
+      status: "CONFIRMED",
+      discrepancyReason: "NONE"
+    });
+  });
+
+  it("empareja M546-ENELB prioritariamente con M546 e ignora candidato con falso positivo léxico (IB239)", async () => {
+    const clientProduct: ClientProduct = {
+      id: "prod-m546",
+      sku: "M546-ENELB",
+      normalizedSku: "M546ENELB",
+      name: "Bomba de Agua Aveo",
+      brand: "Enelbrock"
+    };
+
+    const correctRootMatch: SupplierCandidate = {
+      sku: "M546",
+      normalizedSku: "M546",
+      name: "Bomba de Agua 1.6",
+      brand: "Enelbrock",
+      similarityScore: 0.95
+    };
+
+    const lexicalFalsePositive: SupplierCandidate = {
+      sku: "IB239",
+      normalizedSku: "IB239",
+      name: "Bomba de Agua Aveo Original",
+      brand: "PORTER",
+      similarityScore: 0.76
+    };
+
+    vi.mocked(mockRepo.getUnmappedClientProducts).mockResolvedValueOnce([clientProduct]);
+    vi.mocked(mockRepo.findSupplierCandidates).mockResolvedValueOnce([
+      correctRootMatch,
+      lexicalFalsePositive
+    ]);
+
+    const res = await worker.runBatch();
+
+    expect(res.processed).toBe(1);
+    expect(res.resolved).toBe(1);
+    expect(mockRepo.saveMapping).toHaveBeenCalledWith({
+      clientSku: "M546-ENELB",
+      supplierSku: "M546",
+      confidenceScore: 0.95,
+      status: "CONFIRMED",
+      discrepancyReason: "NONE"
+    });
+  });
+
+  it("re-evalúa y confirma al siguiente candidato excluyendo el proveedor previamente descartado", async () => {
+    const clientProduct: ClientProduct = {
+      id: "prod-re-eval",
+      sku: "C1098",
+      normalizedSku: "C1098",
+      name: "Pastilla de Freno Enelbrock",
+      brand: "Enelbrock"
+    };
+
+    const candidateEnelbrock: SupplierCandidate = {
+      sku: "C1098-ENELBROCK",
+      normalizedSku: "C1098ENELBROCK",
+      name: "Pastilla de Freno Enelbrock",
+      brand: "Enelbrock",
+      similarityScore: 0.95
+    };
+
+    mockRepo.getRejectedSupplierSkus = vi.fn().mockResolvedValueOnce(["C1098"]);
+    vi.mocked(mockRepo.getUnmappedClientProducts).mockResolvedValueOnce([clientProduct]);
+    vi.mocked(mockRepo.findSupplierCandidates).mockResolvedValueOnce([candidateEnelbrock]);
+
+    const res = await worker.runBatch();
+
+    expect(mockRepo.findSupplierCandidates).toHaveBeenCalledWith(
+      "Pastilla de Freno Enelbrock",
+      0.60,
+      5,
+      "C1098",
+      "Enelbrock",
+      "C1098",
+      ["C1098"],
+      expect.arrayContaining(["ENELBROCK", "ENELB"])
+    );
+    expect(res.processed).toBe(1);
+    expect(res.resolved).toBe(1);
+    expect(mockRepo.saveMapping).toHaveBeenCalledWith({
+      clientSku: "C1098",
+      supplierSku: "C1098-ENELBROCK",
+      confidenceScore: 0.95,
+      status: "CONFIRMED",
+      discrepancyReason: "NONE"
+    });
+  });
 });
+

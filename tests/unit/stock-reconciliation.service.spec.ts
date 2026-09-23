@@ -113,6 +113,96 @@ describe("SPEC-STOCK-007: PostgresStockReconciliationService", () => {
         expect.arrayContaining(["AGOTADO", "%Tornillo%"])
       );
     });
+
+    it("aplica filtros de rango de existencias minStock y maxStock con parámetros seguros", async () => {
+      vi.mocked(mockPool.query)
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              totalProducts: 5,
+              availableCount: 5,
+              outOfStockCount: 0,
+              discontinuedCount: 0,
+              unmappedCount: 0
+            }
+          ]
+        } as any)
+        .mockResolvedValueOnce({ rows: [{ total: 3 }] } as any)
+        .mockResolvedValueOnce({ rows: [] } as any);
+
+      await service.getPaginatedReconciliationReport({
+        status: "TODOS",
+        minStock: 10,
+        maxStock: 50,
+        page: 1,
+        pageSize: 20
+      });
+
+      expect(mockPool.query).toHaveBeenCalledWith(
+        expect.stringContaining('"supplierStock" >= $1 AND "supplierStock" <= $2'),
+        [10, 50]
+      );
+    });
+
+    it("aplica ordenamiento por stock ascendente para priorizar menor stock primero", async () => {
+      vi.mocked(mockPool.query)
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              totalProducts: 5,
+              availableCount: 5,
+              outOfStockCount: 0,
+              discontinuedCount: 0,
+              unmappedCount: 0
+            }
+          ]
+        } as any)
+        .mockResolvedValueOnce({ rows: [{ total: 5 }] } as any)
+        .mockResolvedValueOnce({ rows: [] } as any);
+
+      await service.getPaginatedReconciliationReport({
+        status: "TODOS",
+        sortBy: "stock",
+        sortOrder: "asc",
+        page: 1,
+        pageSize: 50
+      });
+
+      expect(mockPool.query).toHaveBeenCalledWith(
+        expect.stringContaining('ORDER BY "supplierStock" ASC, "clientSku" ASC'),
+        expect.any(Array)
+      );
+    });
+
+    it("aplica ordenamiento por SKU descendente", async () => {
+      vi.mocked(mockPool.query)
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              totalProducts: 5,
+              availableCount: 5,
+              outOfStockCount: 0,
+              discontinuedCount: 0,
+              unmappedCount: 0
+            }
+          ]
+        } as any)
+        .mockResolvedValueOnce({ rows: [{ total: 5 }] } as any)
+        .mockResolvedValueOnce({ rows: [] } as any);
+
+      await service.getPaginatedReconciliationReport({
+        status: "TODOS",
+        sortBy: "sku",
+        sortOrder: "desc",
+        page: 1,
+        pageSize: 50
+      });
+
+      expect(mockPool.query).toHaveBeenCalledWith(
+        expect.stringContaining('ORDER BY "clientSku" DESC, "supplierStock" ASC'),
+        expect.any(Array)
+      );
+    });
   });
 });
 

@@ -18,7 +18,9 @@ export class PostgresStockReconciliationService implements IStockReconciliationS
       SELECT 
         c.sku AS "clientSku",
         c.name AS "clientProductName",
+        c.brand AS "clientBrand",
         s.sku AS "supplierSku",
+        s.brand AS "supplierBrand",
         COALESCE(s.current_stock, 0) AS "supplierStock",
         CASE 
           WHEN m.supplier_sku IS NULL THEN 'NO_CATALOGADO'
@@ -48,7 +50,9 @@ export class PostgresStockReconciliationService implements IStockReconciliationS
         SELECT 
           c.sku AS "clientSku",
           c.name AS "clientProductName",
+          c.brand AS "clientBrand",
           s.sku AS "supplierSku",
+          s.brand AS "supplierBrand",
           COALESCE(s.current_stock, 0)::int AS "supplierStock",
           CASE 
             WHEN m.supplier_sku IS NULL THEN 'NO_CATALOGADO'
@@ -99,9 +103,21 @@ export class PostgresStockReconciliationService implements IStockReconciliationS
     }
 
     if (filters.search && filters.search.trim().length > 0) {
-      conditions.push(`("clientSku" ILIKE $${paramIndex} OR "clientProductName" ILIKE $${paramIndex})`);
+      conditions.push(
+        `("clientSku" ILIKE $${paramIndex} OR "clientProductName" ILIKE $${paramIndex} OR "clientBrand" ILIKE $${paramIndex} OR "supplierBrand" ILIKE $${paramIndex})`
+      );
       values.push(`%${filters.search.trim()}%`);
       paramIndex++;
+    }
+
+    if (filters.minStock !== undefined && !isNaN(filters.minStock)) {
+      conditions.push(`"supplierStock" >= $${paramIndex++}`);
+      values.push(filters.minStock);
+    }
+
+    if (filters.maxStock !== undefined && !isNaN(filters.maxStock)) {
+      conditions.push(`"supplierStock" <= $${paramIndex++}`);
+      values.push(filters.maxStock);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -118,11 +134,17 @@ export class PostgresStockReconciliationService implements IStockReconciliationS
     const totalItems = countResult.rows[0]?.total ?? 0;
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
 
+    const sortColumn = filters.sortBy === "sku" ? '"clientSku"' : '"supplierStock"';
+    const sortDirection = filters.sortOrder === "desc" ? "DESC" : "ASC";
+    const secondarySort = filters.sortBy === "sku" ? '"supplierStock" ASC' : '"clientSku" ASC';
+
     const itemsValues = [...values, pageSize, offset];
     const itemsResult = await this.pool.query<{
       clientSku: string;
       clientProductName: string;
+      clientBrand?: string | null;
       supplierSku: string | null;
+      supplierBrand?: string | null;
       supplierStock: number;
       stockStatus: StockStatus;
     }>(
@@ -131,12 +153,14 @@ export class PostgresStockReconciliationService implements IStockReconciliationS
         SELECT 
           "clientSku",
           "clientProductName",
+          "clientBrand",
           "supplierSku",
+          "supplierBrand",
           "supplierStock",
           "stockStatus"
         FROM base_stock
         ${whereClause}
-        ORDER BY "clientSku" ASC
+        ORDER BY ${sortColumn} ${sortDirection}, ${secondarySort}
         LIMIT $${paramIndex++} OFFSET $${paramIndex++};
       `,
       itemsValues
