@@ -100,12 +100,12 @@ export default function IngestPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      {/* <PageHeader
         title="Centro de Ingesta y Extracción de Catálogos"
         description="Normalización automática y persistencia transaccional de listas comerciales en formato PDF."
         badge="Pipeline ETL"
         badgeVariant="neutral"
-      />
+      /> */}
 
       {/* Stepper Informativo en Card */}
       <Card padding={false}>
@@ -119,8 +119,7 @@ export default function IngestPage() {
                 Catálogo Base Cliente
               </h4>
               <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
-                Carga el PDF del cliente para registrar la base de referencia (
-                <code className="font-mono text-zinc-800">client_products</code>).
+                Carga el PDF de productos locales para registrar la base de referencia.
               </p>
             </div>
           </div>
@@ -134,8 +133,7 @@ export default function IngestPage() {
                 Lista de Proveedor
               </h4>
               <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
-                Carga el PDF con existencias y precios (
-                <code className="font-mono text-zinc-800">supplier_products</code>).
+                Carga el PDF con existencias y precios del proveedor
               </p>
             </div>
           </div>
