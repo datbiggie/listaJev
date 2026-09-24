@@ -96,9 +96,10 @@ ON CONFLICT (sku) DO UPDATE SET
   current_stock = EXCLUDED.current_stock,
   updated_at = CURRENT_TIMESTAMP;
 
--- 5. Reinsertar mapeos limpios y correctos para los productos corregidos
+-- 5. Reinsertar mapeos limpios y correctos para los productos corregidos sólo si existen en catálogos
 INSERT INTO product_mappings (client_sku, supplier_sku, confidence_score, status, discrepancy_reason)
-VALUES 
+SELECT v.client_sku, v.supplier_sku, v.confidence_score, v.status::mapping_status, v.discrepancy_reason
+FROM (VALUES 
   ('10 MIN', '10 MIN', 1.00, 'CONFIRMED', 'NONE'),
   ('15 MIN', '15MIN-ENELB', 1.00, 'CONFIRMED', 'NONE'),
   ('25 MIN', '25 MIN', 1.00, 'CONFIRMED', 'NONE'),
@@ -108,4 +109,7 @@ VALUES
   ('50 HEM', '50 HEM', 1.00, 'CONFIRMED', 'NONE'),
   ('60 HEM', '60 HEM', 1.00, 'CONFIRMED', 'NONE'),
   ('25184786', '25184786-ENELB', 1.00, 'CONFIRMED', 'NONE')
+) AS v(client_sku, supplier_sku, confidence_score, status, discrepancy_reason)
+JOIN client_products cp ON cp.sku = v.client_sku
+JOIN supplier_products sp ON sp.sku = v.supplier_sku
 ON CONFLICT DO NOTHING;

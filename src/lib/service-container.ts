@@ -9,11 +9,30 @@ import { CatalogIngestionService } from "@/ingestion/catalog-ingestion.service";
 
 let poolInstance: Pool | null = null;
 
+/**
+ * Normaliza la URI de conexión a PostgreSQL.
+ * Mitiga la advertencia de seguridad de libpq/pg-connection-string v3/pg v9
+ * sustituyendo 'sslmode=require' por 'sslmode=verify-full' para proveedores con certificados válidos (como Neon).
+ */
+export function normalizeDatabaseUrl(connectionString: string): string {
+  try {
+    const parsed = new URL(connectionString);
+    const sslmode = parsed.searchParams.get("sslmode");
+    if (sslmode === "require" && !parsed.searchParams.has("uselibpqcompat")) {
+      parsed.searchParams.set("sslmode", "verify-full");
+      return parsed.toString();
+    }
+    return connectionString;
+  } catch {
+    return connectionString;
+  }
+}
+
 export function getDbPool(): Pool {
   if (!poolInstance) {
     const config = loadConfig();
     poolInstance = new Pool({
-      connectionString: config.DATABASE_URL,
+      connectionString: normalizeDatabaseUrl(config.DATABASE_URL),
       max: config.MAX_CONCURRENCY + 2
     });
   }

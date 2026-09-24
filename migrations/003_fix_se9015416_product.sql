@@ -25,25 +25,33 @@ BEGIN
         current_stock = 36
     WHERE sku = 'SE9015416 SENSOR MAP GM AVEO 1.6 LS CHERY QQ OEM';
 
-    -- 4. Insertar el mapeo confirmado con la relación corregida
-    INSERT INTO product_mappings (
-        id,
-        client_sku,
-        supplier_sku,
-        confidence_score,
-        status,
-        discrepancy_reason,
-        created_at,
-        updated_at
-    ) VALUES (
-        '2688f828-90bd-4bed-834a-fd3e2f3ba1c2',
-        'SE9015416',
-        'SE9015416',
-        1.00,
-        'CONFIRMED',
-        'NONE',
-        CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP
-    );
+    -- 4. Insertar el mapeo confirmado con la relación corregida sólo si el producto existe
+    IF EXISTS (SELECT 1 FROM client_products WHERE sku = 'SE9015416') 
+       AND EXISTS (SELECT 1 FROM supplier_products WHERE sku = 'SE9015416') THEN
+        INSERT INTO product_mappings (
+            id,
+            client_sku,
+            supplier_sku,
+            confidence_score,
+            status,
+            discrepancy_reason,
+            created_at,
+            updated_at
+        ) VALUES (
+            '2688f828-90bd-4bed-834a-fd3e2f3ba1c2',
+            'SE9015416',
+            'SE9015416',
+            1.00,
+            'CONFIRMED',
+            'NONE',
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (client_sku, supplier_sku) WHERE supplier_sku IS NOT NULL DO UPDATE SET
+            confidence_score = EXCLUDED.confidence_score,
+            status = EXCLUDED.status,
+            discrepancy_reason = EXCLUDED.discrepancy_reason,
+            updated_at = CURRENT_TIMESTAMP;
+    END IF;
 
 END $$;

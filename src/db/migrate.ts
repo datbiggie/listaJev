@@ -57,19 +57,34 @@ async function ensureDatabaseExists(databaseUrl: string): Promise<void> {
   }
 }
 
+function normalizeDatabaseUrl(connectionString: string): string {
+  try {
+    const parsed = new URL(connectionString);
+    const sslmode = parsed.searchParams.get("sslmode");
+    if (sslmode === "require" && !parsed.searchParams.has("uselibpqcompat")) {
+      parsed.searchParams.set("sslmode", "verify-full");
+      return parsed.toString();
+    }
+    return connectionString;
+  } catch {
+    return connectionString;
+  }
+}
+
 /**
  * Ejecutor principal de migraciones transaccionales e idempotentes.
  */
 export async function runMigrations(): Promise<void> {
   initializeEnvironment();
 
-  const databaseUrl = process.env["DATABASE_URL"];
-  if (!databaseUrl) {
+  const rawDatabaseUrl = process.env["DATABASE_URL"];
+  if (!rawDatabaseUrl) {
     throw new Error(
       "La variable de entorno DATABASE_URL no esta configurada. Definala en su archivo .env o en el entorno."
     );
   }
 
+  const databaseUrl = normalizeDatabaseUrl(rawDatabaseUrl);
   await ensureDatabaseExists(databaseUrl);
 
   const pool = new Pool({ connectionString: databaseUrl });

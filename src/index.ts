@@ -4,6 +4,7 @@ import { PostgresProductRepository } from "./product.repository";
 import { JevSystemOneMatcher } from "./jev-matcher.service";
 import { CatalogReconciliationWorker } from "./reconciliation.worker";
 import { PostgresStockReconciliationService } from "./stock-reconciliation.service";
+import { normalizeDatabaseUrl } from "./lib/service-container";
 
 /**
  * Punto de entrada principal y Composition Root de la aplicación.
@@ -12,7 +13,7 @@ async function main(): Promise<void> {
   const config = loadConfig();
 
   const pool = new Pool({
-    connectionString: config.DATABASE_URL,
+    connectionString: normalizeDatabaseUrl(config.DATABASE_URL),
     max: config.MAX_CONCURRENCY + 2
   });
 
