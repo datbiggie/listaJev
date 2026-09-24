@@ -5,7 +5,7 @@ export interface AiServiceHealth {
 }
 
 /**
- * Comprueba de forma no bloqueante y ligera el estado de conectividad y facturación de Vercel AI Gateway.
+ * Comprueba de forma no bloqueante y ligera el estado de conectividad y facturación de Vercel AI Gateway para Jev.
  *
  * @param apiKeyOverride - Opcional para pruebas o inyección de clave sin depender de process.env.
  */
@@ -20,16 +20,21 @@ export async function checkAiServiceHealth(apiKeyOverride?: string): Promise<AiS
       };
     }
 
-    const response = await fetch("https://ai-gateway.vercel.sh/v1/chat/completions", {
+    const response = await fetch("https://ai-gateway.vercel.sh/v1/evaluate", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "openai/gpt-4o-mini",
-        messages: [{ role: "user", content: "ping" }],
-        max_tokens: 1
+        model: process.env.JEV_MODEL_ID || "typesafe-ai/jev",
+        state: "health-check",
+        questions: {
+          ping: {
+            type: "boolean",
+            instructions: "ping"
+          }
+        }
       }),
       signal: AbortSignal.timeout(3000)
     });
@@ -37,7 +42,7 @@ export async function checkAiServiceHealth(apiKeyOverride?: string): Promise<AiS
     if (response.status === 200) {
       return {
         status: "ONLINE",
-        message: "En línea (Vercel AI Gateway activo)"
+        message: "Vercel AI Gateway"
       };
     }
 

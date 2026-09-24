@@ -182,9 +182,53 @@ describe("SPEC-AI-005: Servicio JevSystemOneMatcher", () => {
 
     const callArgs = (vi.mocked(global.fetch).mock.calls[0]![1] as any);
     const bodyObj = JSON.parse(callArgs.body);
-    const userContent = JSON.parse(bodyObj.messages[1].content);
+    const stateContent = JSON.parse(bodyObj.state ?? bodyObj.messages?.[1]?.content);
 
-    expect(userContent.clientProduct.brand).toBe("ENELBROCK");
-    expect(userContent.supplierCandidate.brand).toBe("ENELBROCK");
+    expect(stateContent.clientProduct.brand).toBe("ENELBROCK");
+    expect(stateContent.supplierCandidate.brand).toBe("ENELBROCK");
+  });
+
+  it("procesa correctamente la respuesta nativa answers del endpoint /evaluate de Jev", async () => {
+    const mockJevResponse = {
+      model: "typesafe-ai/jev",
+      answers: {
+        isMatch: {
+          type: "boolean",
+          probability: 0.94
+        },
+        matchType: {
+          type: "choice",
+          choice: "EXACT_CODE",
+          probabilities: {
+            EXACT_CODE: 0.98,
+            EQUIVALENT_VARIANT: 0.02,
+            DIFFERENT_PRODUCT: 0.0
+          },
+          confidence: 0.98
+        },
+        discrepancyReason: {
+          type: "choice",
+          choice: "NONE",
+          probabilities: {
+            NONE: 0.99
+          },
+          confidence: 0.99
+        }
+      }
+    };
+
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => mockJevResponse
+    });
+
+    const matcher = new JevSystemOneMatcher("typesafe-ai/jev", 3, 10, "test-api-key");
+    const result = await matcher.evaluateMatch(clientProduct, candidate);
+
+    expect(result.isMatch).toBe(true);
+    expect(result.matchType).toBe("EXACT_CODE");
+    expect(result.discrepancyReason).toBe("NONE");
+    expect(result.confidenceScore).toBeGreaterThanOrEqual(0.9);
   });
 });
