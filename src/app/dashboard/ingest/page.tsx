@@ -4,7 +4,6 @@ import { useState, useActionState, useRef, type DragEvent, type ChangeEvent } fr
 import Link from "next/link";
 import { ingestCatalogAction } from "@/actions/ingest-catalog.action";
 import { ActionResult, CatalogTarget, IngestionSummary } from "@/types";
-import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import {
   UploadCloudIcon,
