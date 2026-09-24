@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: catalog_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-catalog_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-catalog_password}
+      POSTGRES_DB: ${POSTGRES_DB:-catalog_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-catalog_user} -d ${POSTGRES_DB:-catalog_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: catalog_app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-catalog_user}:${POSTGRES_PASSWORD:-catalog_password}@db:5432/${POSTGRES_DB:-catalog_db}
+      AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY}
+      JEV_MODEL_ID: ${JEV_MODEL_ID:-typesafe-ai/jev}
+      BATCH_SIZE: ${BATCH_SIZE:-50}
+      MAX_CONCURRENCY: ${MAX_CONCURRENCY:-5}
+      PG_TRGM_THRESHOLD: ${PG_TRGM_THRESHOLD:-0.60}
+      CONFIRMED_MATCH_THRESHOLD: ${CONFIRMED_MATCH_THRESHOLD:-0.90}
+      REVIEW_MATCH_THRESHOLD: ${REVIEW_MATCH_THRESHOLD:-0.70}
+      RUN_MIGRATIONS: "true"
+      NODE_ENV: production
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

@@ -30,23 +30,30 @@ async function ensureDatabaseExists(databaseUrl: string): Promise<void> {
   const adminUrl = new URL(databaseUrl);
   adminUrl.pathname = "/postgres";
 
-  const adminPool = new Pool({
-    connectionString: adminUrl.toString()
-  });
-
   try {
-    const checkQuery = "SELECT 1 FROM pg_database WHERE datname = $1;";
-    const result = await adminPool.query(checkQuery, [targetDb]);
+    const adminPool = new Pool({
+      connectionString: adminUrl.toString(),
+      connectionTimeoutMillis: 5000
+    });
 
-    if (result.rowCount === 0) {
-      process.stdout.write(`Creando base de datos '${targetDb}'...\n`);
-      // CREATE DATABASE no admite parámetros parametrizados para el identificador
-      const safeDbName = targetDb.replace(/"/g, '""');
-      await adminPool.query(`CREATE DATABASE "${safeDbName}";`);
-      process.stdout.write(`Base de datos '${targetDb}' creada correctamente.\n`);
+    try {
+      const checkQuery = "SELECT 1 FROM pg_database WHERE datname = $1;";
+      const result = await adminPool.query(checkQuery, [targetDb]);
+
+      if (result.rowCount === 0) {
+        process.stdout.write(`Creando base de datos '${targetDb}'...\n`);
+        // CREATE DATABASE no admite parámetros parametrizados para el identificador
+        const safeDbName = targetDb.replace(/"/g, '""');
+        await adminPool.query(`CREATE DATABASE "${safeDbName}";`);
+        process.stdout.write(`Base de datos '${targetDb}' creada correctamente.\n`);
+      }
+    } finally {
+      await adminPool.end();
     }
-  } finally {
-    await adminPool.end();
+  } catch (error) {
+    process.stdout.write(
+      `Aviso: Verificacion administrativa de BD omitida (${(error as Error).message}). Continuando conexion directa a '${targetDb}'...\n`
+    );
   }
 }
 
