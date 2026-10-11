@@ -10,8 +10,9 @@ interface JevEvaluateResponse {
   model?: string;
   answers?: {
     isMatch?: {
-      type: "boolean";
-      probability: number;
+      type: "boolean" | "noul";
+      probability?: number;
+      noul?: number;
     };
     matchType?: {
       type: "choice";
@@ -40,14 +41,15 @@ interface JevEvaluateResponse {
   [key: string]: unknown;
 }
 
-function parseJevResponse(rawJson: unknown): ProductMatchResult {
+export function parseJevResponse(rawJson: unknown): ProductMatchResult {
   const data = rawJson as JevEvaluateResponse;
 
   if (data.answers) {
     const answers = data.answers;
     const matchChoice = answers.matchType?.choice;
     const isDifferent = matchChoice === "DIFFERENT_PRODUCT";
-    const matchProbability = answers.isMatch?.probability ?? 0;
+    const matchProbability =
+      answers.isMatch?.noul ?? answers.isMatch?.probability ?? 0;
     const discrepancy = answers.discrepancyReason?.choice;
 
     const isMatch =
@@ -271,3 +273,5 @@ export class JevSystemOneMatcher implements IAiMatcherService {
     throw new Error("Estado inalcanzable en evaluador Jev.");
   }
 }
+
+export { LayaSystemOneMatcher, parseLayaResponse } from "./laya-matcher.service";

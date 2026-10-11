@@ -1,7 +1,7 @@
 import { Pool } from "pg";
 import { loadConfig } from "./config";
 import { PostgresProductRepository } from "./product.repository";
-import { JevSystemOneMatcher } from "./jev-matcher.service";
+import { LayaSystemOneMatcher } from "./laya-matcher.service";
 import { CatalogReconciliationWorker } from "./reconciliation.worker";
 import { PostgresStockReconciliationService } from "./stock-reconciliation.service";
 import { normalizeDatabaseUrl } from "./lib/service-container";
@@ -18,11 +18,12 @@ async function main(): Promise<void> {
   });
 
   const repository = new PostgresProductRepository(pool);
-  const aiMatcher = new JevSystemOneMatcher(
-    config.JEV_MODEL_ID,
+  const aiMatcher = new LayaSystemOneMatcher(
+    config.LAYA_MODEL_ID || config.JEV_MODEL_ID,
     3,
     400,
-    config.AI_GATEWAY_API_KEY
+    config.AI_GATEWAY_API_KEY,
+    config.LAYA_API_URL
   );
   const worker = new CatalogReconciliationWorker(repository, aiMatcher, config);
   const stockService = new PostgresStockReconciliationService(pool);

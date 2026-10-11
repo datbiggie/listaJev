@@ -54,7 +54,7 @@ export default async function DashboardLayout({
           <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2 shadow-2xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-zinc-900">
-                Motor IA Jev
+                Motor IA Laya
               </span>
               <span
                 className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-semibold border ${

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Esquema de validación y contrato para el resultado de inferencia de Sistema 1 con Jev.
+ * Esquema de validación y contrato para el resultado de inferencia de Sistema 1 con Laya (convaiinnovations/laya).
  */
 export const ProductMatchResultSchema = z.object({
   isMatch: z
@@ -359,6 +359,9 @@ export interface IAiMatcherService {
     clientProduct: ClientProduct,
     candidate: SupplierCandidate
   ): Promise<ProductMatchResult>;
+  evaluateBatch?(
+    items: Array<{ clientProduct: ClientProduct; candidate: SupplierCandidate }>
+  ): Promise<ProductMatchResult[]>;
 }
 
 /**

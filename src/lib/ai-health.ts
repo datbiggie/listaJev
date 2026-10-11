@@ -5,33 +5,70 @@ export interface AiServiceHealth {
 }
 
 /**
- * Comprueba de forma no bloqueante y ligera el estado de conectividad y facturación de Vercel AI Gateway para Jev.
+ * Comprueba de forma no bloqueante y ligera el estado de conectividad del motor de inferencia (Laya / Gateway).
  *
  * @param apiKeyOverride - Opcional para pruebas o inyección de clave sin depender de process.env.
+ * @param endpointOverride - Opcional para pruebas o inyección de URL del endpoint.
  */
-export async function checkAiServiceHealth(apiKeyOverride?: string): Promise<AiServiceHealth> {
+export async function checkAiServiceHealth(
+  apiKeyOverride?: string,
+  endpointOverride?: string
+): Promise<AiServiceHealth> {
   try {
-    const apiKey = apiKeyOverride ?? process.env.AI_GATEWAY_API_KEY;
+    const rawUrl =
+      endpointOverride ??
+      process.env.LAYA_API_URL ??
+      (process.env.AI_GATEWAY_API_KEY
+        ? "https://ai-gateway.vercel.sh/v1/evaluate"
+        : "http://localhost:8000/evaluate");
 
-    if (!apiKey || apiKey.trim().length === 0) {
+    const isLocal =
+      rawUrl.includes("localhost") ||
+      rawUrl.includes("127.0.0.1") ||
+      rawUrl.includes("::1");
+
+    const apiKey =
+      apiKeyOverride !== undefined ? apiKeyOverride : process.env.AI_GATEWAY_API_KEY;
+
+    if (apiKeyOverride === "") {
       return {
         status: "NOT_CONFIGURED",
         message: "Clave de API no configurada"
       };
     }
 
-    const response = await fetch("https://ai-gateway.vercel.sh/v1/evaluate", {
+    if (!isLocal && (!apiKey || apiKey.trim().length === 0)) {
+      return {
+        status: "NOT_CONFIGURED",
+        message: "Clave de API no configurada"
+      };
+    }
+
+    const cleanBaseUrl = rawUrl.replace(/\/+$/, "");
+    const endpoint = cleanBaseUrl.endsWith("/evaluate")
+      ? cleanBaseUrl
+      : `${cleanBaseUrl}/evaluate`;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json"
+    };
+
+    if (apiKey && apiKey.trim().length > 0 && apiKey !== "local-dev-key") {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
+
+    const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
+      headers,
       body: JSON.stringify({
-        model: process.env.JEV_MODEL_ID || "typesafe-ai/jev",
+        model:
+          process.env.LAYA_MODEL_ID ||
+          process.env.JEV_MODEL_ID ||
+          "convaiinnovations/laya",
         state: "health-check",
         questions: {
           ping: {
-            type: "boolean",
+            type: "noul",
             instructions: "ping"
           }
         }
@@ -42,7 +79,7 @@ export async function checkAiServiceHealth(apiKeyOverride?: string): Promise<AiS
     if (response.status === 200) {
       return {
         status: "ONLINE",
-        message: "Vercel AI Gateway"
+        message: "En línea (Motor IA Laya)"
       };
     }
 
@@ -50,7 +87,7 @@ export async function checkAiServiceHealth(apiKeyOverride?: string): Promise<AiS
       return {
         status: "UNVERIFIED",
         statusCode: 403,
-        message: "Requiere verificación en Vercel"
+        message: "Requiere verificación en el proveedor"
       };
     }
 
@@ -65,12 +102,12 @@ export async function checkAiServiceHealth(apiKeyOverride?: string): Promise<AiS
     return {
       status: "ERROR",
       statusCode: response.status,
-      message: `Error HTTP ${response.status} en AI Gateway`
+      message: `Error HTTP ${response.status} en servicio de inferencia`
     };
   } catch (error) {
     return {
       status: "ERROR",
-      message: (error as Error).message || "Fallo de conexión con AI Gateway"
+      message: (error as Error).message || "Fallo de conexión con servicio de inferencia"
     };
   }
 }

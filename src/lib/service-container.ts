@@ -1,7 +1,7 @@
 import { Pool } from "pg";
 import { loadConfig } from "@/config";
 import { PostgresProductRepository } from "@/product.repository";
-import { JevSystemOneMatcher } from "@/jev-matcher.service";
+import { LayaSystemOneMatcher } from "@/laya-matcher.service";
 import { CatalogReconciliationWorker } from "@/reconciliation.worker";
 import { PostgresStockReconciliationService } from "@/stock-reconciliation.service";
 import { UnpdfExtractor } from "@/ingestion/unpdf-extractor";
@@ -52,11 +52,12 @@ export function getCatalogIngestionService(): CatalogIngestionService {
 export function getReconciliationWorker(): CatalogReconciliationWorker {
   const config = loadConfig();
   const repo = getProductRepository();
-  const matcher = new JevSystemOneMatcher(
-    config.JEV_MODEL_ID,
+  const matcher = new LayaSystemOneMatcher(
+    config.LAYA_MODEL_ID || config.JEV_MODEL_ID,
     3,
     400,
-    config.AI_GATEWAY_API_KEY
+    config.AI_GATEWAY_API_KEY,
+    config.LAYA_API_URL
   );
   return new CatalogReconciliationWorker(repo, matcher, config);
 }

@@ -10,7 +10,20 @@ export const EnvironmentSchema = z
       .url("DATABASE_URL debe ser una URI válida de conexión PostgreSQL"),
     AI_GATEWAY_API_KEY: z
       .string()
-      .min(1, "AI_GATEWAY_API_KEY es obligatoria para la comunicación con Vercel AI Gateway"),
+      .min(1, "AI_GATEWAY_API_KEY es obligatoria para la comunicación con Vercel AI Gateway")
+      .default("local-dev-key"),
+    LAYA_API_URL: z
+      .string()
+      .url("LAYA_API_URL debe ser una URI válida")
+      .default("http://localhost:8000"),
+    LAYA_MODEL_ID: z
+      .string()
+      .min(1)
+      .default("convaiinnovations/laya"),
+    LAYA_SUBFOLDER: z
+      .string()
+      .min(1)
+      .default("multilingual"),
     JEV_MODEL_ID: z
       .string()
       .min(1)

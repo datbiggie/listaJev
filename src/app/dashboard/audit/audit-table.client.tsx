@@ -310,7 +310,7 @@ export function AuditTableClient({
                       : "Re-evaluando productos huérfanos..."}
                   </p>
                   <p className="text-[11px] text-zinc-500 leading-relaxed">
-                    Normalizando SKUs, analizando similitud determinista y evaluando inferencia semántica Jev en PostgreSQL.
+                    Normalizando SKUs, analizando similitud determinista y evaluando inferencia semántica Laya en PostgreSQL.
                   </p>
                 </div>
 

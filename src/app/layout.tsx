@@ -2,8 +2,8 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Conciliación & Stock | ListaJev",
-  description: "Plataforma de conciliación determinista de inventarios y catálogos comerciales"
+  title: "Conciliación & Stock | ListaJev (Laya AI)",
+  description: "Plataforma de conciliación determinista de inventarios y catálogos comerciales impulsada por Laya"
 };
 
 export default function RootLayout({

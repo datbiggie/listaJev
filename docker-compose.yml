@@ -27,8 +27,11 @@ services:
       - "${PORT:-3000}:3000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-catalog_user}:${POSTGRES_PASSWORD:-catalog_password}@db:5432/${POSTGRES_DB:-catalog_db}
-      AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY}
-      JEV_MODEL_ID: ${JEV_MODEL_ID:-typesafe-ai/jev}
+      LAYA_API_URL: ${LAYA_API_URL:-http://host.docker.internal:8000}
+      LAYA_MODEL_ID: ${LAYA_MODEL_ID:-convaiinnovations/laya}
+      LAYA_SUBFOLDER: ${LAYA_SUBFOLDER:-multilingual}
+      AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-local-dev-key}
+      JEV_MODEL_ID: ${JEV_MODEL_ID:-convaiinnovations/laya}
       BATCH_SIZE: ${BATCH_SIZE:-50}
       MAX_CONCURRENCY: ${MAX_CONCURRENCY:-5}
       PG_TRGM_THRESHOLD: ${PG_TRGM_THRESHOLD:-0.60}
